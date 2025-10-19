@@ -1,0 +1,100 @@
+:root {
+    --bg-main: #1a1a2e;
+    --bg-panel: #16213e;
+    --text-main: #e94560;
+    --text-light: #f0f0f0;
+    --text-warn: #fca311;
+    --text-danger: #e94560;
+    --border-color: #0f3460;
+    --tile-wall: #2a2a4e;
+    --tile-floor: #3a3a5e;
+    --tile-discovered: rgba(0, 0, 0, 0.4);
+    --player-color: #fca311;
+    --stairs-color: #9b59b6;
+    --item-color: #2ecc71;
+    --chest-color: #e67e22;
+    --trap-color: rgba(233, 69, 96, 0.5);
+}
+/* ... (基本スタイルは前回と同様、以下に追加・変更) ... */
+body {
+    font-family: 'Segoe UI', 'Meiryo', sans-serif;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    margin: 0;
+    background-color: var(--bg-main);
+    color: var(--text-light);
+    -webkit-font-smoothing: antialiased;
+}
+#game-container {
+    width: 95%; max-width: 800px; padding: 15px; background-color: var(--bg-panel);
+    border: 2px solid var(--border-color); border-radius: 10px; box-shadow: 0 0 20px rgba(0,0,0,0.5);
+    display: flex; flex-direction: column;
+}
+header {
+    text-align: center; border-bottom: 2px solid var(--border-color);
+    padding-bottom: 10px; margin-bottom: 10px;
+}
+h1 { color: var(--text-main); margin: 0; font-size: 2em; letter-spacing: 2px; }
+#stats-panel { display: flex; justify-content: space-around; font-weight: bold; }
+#map-container {
+    display: grid; gap: 1px; background-color: #000; border: 2px solid var(--border-color);
+    aspect-ratio: 1 / 1; max-width: 600px; width: 100%; margin: 0 auto;
+}
+.map-cell {
+    position: relative; background-color: var(--tile-wall);
+    font-size: 1.2em; text-align: center;
+}
+.floor { background-color: var(--tile-floor); }
+.trap.visible { background-color: var(--trap-color); }
+
+.map-cell::after {
+    content: ''; position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+    background-color: rgba(0,0,0,0.95); transition: background-color 0.5s; pointer-events: none;
+}
+.discovered::after { background-color: var(--tile-discovered); }
+.visible::after { background-color: transparent; }
+
+.map-cell span { position: relative; z-index: 2; }
+footer { display: flex; flex-direction: column; gap: 10px; margin-top: 10px; }
+#message-log {
+    background-color: rgba(0,0,0,0.3); padding: 10px; border-radius: 5px; height: 4.5em;
+    overflow-y: auto; border: 1px solid var(--border-color); display: flex; flex-direction: column-reverse;
+}
+#message-log p { margin: 2px 0; font-size: 0.9em; }
+#message-log .danger { color: var(--text-danger); font-weight: bold; }
+#message-log .warning { color: var(--text-warn); }
+#message-log .info { color: var(--text-light); }
+#message-log .system { color: #88aaff; font-style: italic; }
+
+#inventory-panel h2 { margin: 0 0 5px 0; font-size: 1em; color: var(--text-main); }
+#inventory-prompt { color: var(--text-warn); margin-left: 10px; }
+#inventory-list {
+    list-style: none; padding: 0; margin: 0; display: flex; flex-wrap: wrap; gap: 5px;
+}
+.inventory-item {
+    background: var(--bg-main); padding: 5px 10px; border-radius: 5px;
+    border: 1px solid var(--border-color); cursor: pointer; transition: all 0.2s;
+}
+.inventory-item:hover { border-color: var(--text-main); transform: translateY(-2px); }
+.inventory-item.active { border-color: var(--text-warn); box-shadow: 0 0 5px var(--text-warn); }
+
+#overlay {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0, 0, 0, 0.85);
+    display: none; justify-content: center; align-items: center; z-index: 100;
+}
+#overlay-content {
+    background-color: var(--bg-panel); padding: 30px; border-radius: 10px;
+    border: 2px solid var(--text-main); text-align: center; max-width: 80%;
+}
+#overlay-actions { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; margin-top: 20px; }
+.action-button {
+    background-color: var(--bg-main); color: var(--text-light); border: 1px solid var(--border-color);
+    padding: 10px 15px; cursor: pointer; transition: all 0.2s;
+}
+.action-button:hover { border-color: var(--text-main); }
+#restart-button {
+    margin-top: 20px; padding: 10px 20px; background-color: var(--text-main);
+    color: var(--bg-panel); border: none; font-weight: bold; cursor: pointer;
+}

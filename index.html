@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Shadow Diver: Abyssal Echoes</title>
+    <link href="style.css" rel="stylesheet" type="text/css">
+</head>
+<body>
+    <div id="game-container">
+        <header>
+            <h1>Shadow Diver</h1>
+            <div id="stats-panel">
+                <span>FLOOR: <span id="floor-stat">1</span></span>
+                <span>HP: <span id="hp-stat">100</span></span>
+                <span>ST: <span id="stamina-stat">50</span></span>
+            </div>
+        </header>
+
+        <main>
+            <div id="map-container">
+                </div>
+        </main>
+
+        <footer>
+            <div id="message-log">
+                <p>深層へ向かえ...</p>
+            </div>
+            <div id="inventory-panel">
+                <h2>INVENTORY (<span id="inventory-count">0</span>/10) <span id="inventory-prompt"></span></h2>
+                <ul id="inventory-list"></ul>
+            </div>
+        </footer>
+    </div>
+
+    <div id="overlay">
+        <div id="overlay-content">
+            <h2 id="overlay-title"></h2>
+            <p id="overlay-text"></p>
+            <div id="overlay-actions"></div>
+            <button id="restart-button" style="display:none;">もう一度深層へ</button>
+        </div>
+    </div>
+
+    <script src="game.js"></script>
+</body>
+</html>
