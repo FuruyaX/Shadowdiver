@@ -1,6 +1,6 @@
 'use strict';
 // ==================================================================
-// ゲーム設定 (仕様書のスプレッドシートに基づく)
+// ゲーム設定
 // ==================================================================
 const GameConfig = {
     PLAYER: {
@@ -10,11 +10,11 @@ const GameConfig = {
         INVENTORY_SIZE: 10,
     },
     ENEMY_AI: {
-        // モードごとの設定
-        search:   { name: "索敵",   duration: 40, speed: 8,  detectionRange: 6, message: "影はこちらの様子を探っている..." },
-        active:   { name: "アクティブ", duration: 15, speed: 12, detectionRange: 10, message: "影が殺意を放ち、猛追を開始した！" },
-        wander_a: { name: "徘徊A",  duration: 10, speed: 5,  detectionRange: 0,  message: "影の気配が完全に消えた..." },
-        wander_b: { name: "徘徊B",  duration: 30, speed: 5,  detectionRange: 6,  message: "影は何かを探して徘徊しているようだ。" }
+        // モードごとの基本設定
+        search:   { name: "索敵",   baseDuration: 40, baseSpeed: 8,  detectionRange: 6, message: "影はこちらの様子を探っている..." },
+        active:   { name: "アクティブ", baseDuration: 15, baseSpeed: 12, detectionRange: 10, message: "影が殺意を放ち、猛追を開始した！" },
+        wander_a: { name: "徘徊A",  baseDuration: 10, baseSpeed: 5,  detectionRange: 0,  message: "影の気配が完全に消えた..." },
+        wander_b: { name: "徘徊B",  baseDuration: 30, baseSpeed: 5,  detectionRange: 6,  message: "影は何かを探して徘徊しているようだ。" }
     },
     ENCOUNTER: {
         DODGE_ACTION: {
@@ -27,7 +27,7 @@ const GameConfig = {
     DUNGEON: {
         WIDTH: 25,
         HEIGHT: 25,
-        // 床面積の割合をランダム化
+                // 床面積の割合をランダム化
         getFloorRatio: () => 0.35 + Math.random() * 0.2 // 35% ~ 55%
     }
 };
@@ -36,7 +36,8 @@ const GameConfig = {
 // ゲーム全体の管理オブジェクト (シングルトン)
 // ==================================================================
 const Game = {
-    state: 'loading', // loading, playing, encounter, gameover
+    // ... (init, cacheDomElements, bindGlobalEvents などの基本部分は前回と同様)
+    state: 'loading',
     player: null,
     dungeon: null,
     floor: 1,
@@ -79,21 +80,24 @@ const Game = {
         this.player = new Player(GameConfig.PLAYER.INITIAL_HP, GameConfig.PLAYER.INITIAL_STAMINA);
         this.dungeon = new Dungeon(GameConfig.DUNGEON.WIDTH, GameConfig.DUNGEON.HEIGHT);
         
+        // 初期アイテム
         this.player.addItem(ItemFactory.create('スタミナドリンク'));
         this.player.addItem(ItemFactory.create('スモーク弾'));
+        this.player.addItem(ItemFactory.create('コンパス'));
 
         this.setupNewFloor();
         this.state = 'playing';
         this.dom.overlay.style.display = 'none';
         this.logMessage(`地下 ${this.floor}階`, 'system');
     },
-
+    
+    // ... (processTurn, updateUI, renderMainView は前回と同様)
     processTurn(playerAction) {
         if (this.state !== 'playing') return;
 
         const actionResult = playerAction();
         if (!actionResult || !actionResult.success) {
-            if(actionResult.message) this.logMessage(actionResult.message, 'warning');
+            if(actionResult && actionResult.message) this.logMessage(actionResult.message, 'warning');
             return;
         }
         if(actionResult.cost > 0) this.player.useStamina(actionResult.cost);
@@ -121,27 +125,30 @@ const Game = {
         this.dom.staminaStat.textContent = `${Math.floor(this.player.stamina)}/${this.player.maxStamina}`;
         this.updateInventoryUI();
     },
-    
+
     renderMainView() {
         const { x, y, direction } = this.player;
         const [dx, dy] = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] }[direction];
         
         let viewText = "";
         const frontTile = this.dungeon.getTile(x + dx, y + dy);
+        const currentTile = this.dungeon.getTile(x, y);
 
-        if (!frontTile || frontTile.type === 'wall') {
+        // まず足元の情報をチェック
+        if (currentTile.entity) {
+             const entityName = {
+                stairs: "階下へ続く階段",
+                item: "何かアイテム",
+                chest: "古い宝箱",
+                trap: "危険な罠"
+            }[currentTile.entity.type];
+            viewText = `足元に${entityName}がある。`;
+        }
+        // 次に前方の情報をチェック
+        else if (!frontTile || frontTile.type === 'wall') {
             viewText = "目の前は硬い壁だ。";
         } else {
             viewText = "通路が続いている。";
-            if (frontTile.entity) {
-                const entityName = {
-                    stairs: "階下へ続く階段",
-                    item: "何かアイテム",
-                    chest: "古い宝箱",
-                    trap: "危険な罠"
-                }[frontTile.entity.type];
-                viewText += `<br>足元に${entityName}がある。`;
-            }
         }
         this.dom.mainViewText.innerHTML = viewText;
     },
@@ -154,12 +161,18 @@ const Game = {
             li.className = 'inventory-item';
             li.textContent = item.name;
             li.onclick = () => {
-                if (item.category !== '戦闘') { // 戦闘用アイテムはここでは使えない
-                     item.use(this.player, this);
-                     this.player.removeItem(item);
-                     this.updateUI();
-                } else {
+                // クリックで使用するロジック
+                if (item.category === '戦闘') {
                     this.logMessage('戦闘用アイテムはここでは使えない。', 'warning');
+                } else if (item.category === '特殊' && item.name === '銅の鍵') {
+                    this.logMessage('鍵は宝箱の前で自動的に使われる。', 'info');
+                }
+                 else {
+                    this.processTurn(() => {
+                        const result = item.use(this.player, this);
+                        this.player.removeItem(item);
+                        return { success: true, cost: 1, message: result };
+                    });
                 }
             };
             this.dom.inventoryList.appendChild(li);
@@ -167,7 +180,7 @@ const Game = {
     },
 
     setupNewFloor() {
-        this.dungeon.generate();
+        this.dungeon.generate(this.floor); // ★★改良: 階層を渡す
         const startPos = this.dungeon.getEmptyTile();
         this.player.setPosition(startPos.x, startPos.y);
         this.dungeon.updatePlayerVision(this.player.x, this.player.y, GameConfig.PLAYER.VISION_RADIUS);
@@ -181,12 +194,15 @@ const Game = {
         this.setupNewFloor();
     },
 
+    // ★★改良: 宝箱のロジックを追加
     handleInteraction() {
         const tile = this.dungeon.getTile(this.player.x, this.player.y);
         
         if (tile.entity) {
             switch (tile.entity.type) {
-                case 'stairs': this.nextFloor(); return { success: true, cost: 0 };
+                case 'stairs':
+                    this.nextFloor();
+                    return { success: true, cost: 0 };
                 case 'item':
                     if (this.player.addItem(tile.entity.item)) {
                         this.logMessage(`${tile.entity.item.name}を拾った。`, 'info');
@@ -195,16 +211,32 @@ const Game = {
                         this.logMessage('インベントリが一杯だ。', 'warning');
                     }
                     return { success: true, cost: 1 };
-                default:
-                    this.logMessage('様子をうかがった。', 'info');
+                case 'chest':
+                    if (tile.entity.locked) {
+                        if (this.player.hasItem('銅の鍵')) {
+                            this.player.removeItemByName('銅の鍵');
+                            tile.entity.locked = false;
+                            this.logMessage('鍵を使って宝箱を開けた！', 'system');
+                            // 中からアイテムを出す
+                            const loot = ItemFactory.create(tile.entity.contains);
+                            this.logMessage(`${loot.name}を手に入れた！`, 'info');
+                            this.player.addItem(loot);
+                            tile.entity = null; // 宝箱は消える
+                        } else {
+                            this.logMessage('宝箱は鍵がかかっている。', 'warning');
+                        }
+                    }
                     return { success: true, cost: 1 };
+                default:
+                     return { success: true, cost: 1, message: '様子をうかがった。' };
             }
-        } else {
-            this.logMessage('様子をうかがった。', 'info');
-            return { success: true, cost: 1 };
         }
+        // 何もなければ待機
+        this.logMessage('様子をうかがった。', 'info');
+        return { success: true, cost: 1 };
     },
 
+    // ... (startEncounter, endEncounter, gameOver, logMessage, bindInput, createActionButton は前回と同様)
     startEncounter() {
         this.state = 'encounter';
         this.dom.overlayTitle.textContent = '影に捕捉された！';
@@ -285,7 +317,7 @@ const Game = {
             }
         });
 
-        // フローティングコントローラ
+        // フローティングコントローラ (モバイル用)
         document.getElementById('btn-up').onclick = () => this.processTurn(() => this.player.move(0, -1));
         document.getElementById('btn-down').onclick = () => this.processTurn(() => this.player.move(0, 1));
         document.getElementById('btn-left').onclick = () => this.processTurn(() => this.player.move(-1, 0));
@@ -311,7 +343,20 @@ const ItemFactory = {
         '救急キット': { category: '特殊', use: (p, g) => { p.hp = Math.min(p.maxHp, p.hp + 50); g.logMessage('HPが回復した。', 'system'); }},
         'スモーク弾': { category: '戦闘', use: (p, g) => { g.logMessage('スモーク弾を使い、影の視界から逃れた！', 'system'); g.dungeon.enemy.warp(); }},
         '閃光弾': { category: '戦闘', use: (p, g) => { g.logMessage('閃光弾で影の動きを止めた！', 'system'); g.dungeon.enemy.setMode('wander_a', 20); }},
-        'コンパス': { category: '探索', use: (p, g) => { g.logMessage('コンパスが階段の方向を示した。', 'system'); /* TODO: 方角表示ロジック */ }},
+        '銅の鍵': { category: '特殊', use: (p, g) => { g.logMessage('宝箱を開けるための鍵だ。', 'info'); }}, // ★★改良: 鍵を追加
+        'コンパス': { category: '探索', use: (p, g) => { // ★★改良: コンパスの機能を実装
+            const stairs = g.dungeon.findEntity('stairs');
+            if (!stairs) { g.logMessage('コンパスは奇妙に回転するだけだ...', 'warning'); return; }
+            const dx = stairs.x - p.x;
+            const dy = stairs.y - p.y;
+            let dir = '';
+            if (Math.abs(dy) > Math.abs(dx)) {
+                dir = dy > 0 ? '南' : '北';
+            } else {
+                dir = dx > 0 ? '東' : '西';
+            }
+             g.logMessage(`コンパスは${dir}の方角を指している。`, 'system');
+        }},
     },
     create(name) {
         const def = this.definitions[name];
@@ -324,6 +369,7 @@ const ItemFactory = {
 // プレイヤークラス
 // ==================================================================
 class Player {
+    // ... (constructor, setPosition, move, takeDamage, useStamina, regenerateStamina, addItem は前回と同様)
     constructor(maxHp, maxStamina) {
         this.x = 0; this.y = 0;
         this.direction = 'down';
@@ -386,9 +432,14 @@ class Player {
         }
         return false;
     }
-    removeItem(item) {
-        this.inventory = this.inventory.filter(i => i !== item);
+
+    // ★★改良: アイテム名での削除と所持確認
+    removeItem(item) { this.inventory = this.inventory.filter(i => i !== item); }
+    removeItemByName(name) {
+        const index = this.inventory.findIndex(i => i.name === name);
+        if (index > -1) this.inventory.splice(index, 1);
     }
+    hasItem(name) { return this.inventory.some(i => i.name === name); }
 }
 
 // ==================================================================
@@ -399,11 +450,11 @@ class Dungeon {
         this.width = width; this.height = height; this.map = []; this.enemy = null;
     }
 
-    generate() {
+    generate(floor) { // ★★改良: 階層を受け取る
+        // ... (マップの初期化は同様)
         this.map = Array.from({ length: this.height }, () => 
             Array.from({ length: this.width }, () => ({ type: 'wall', visible: false, discovered: false, entity: null }))
         );
-        // Drunkard's Walk
         let x = Math.floor(this.width / 2), y = Math.floor(this.height / 2);
         this.getTile(x, y).type = 'floor';
         let floorTiles = Math.floor(this.width * this.height * GameConfig.DUNGEON.getFloorRatio());
@@ -415,13 +466,35 @@ class Dungeon {
                  if(this.getTile(x,y).type === 'wall') this.getTile(x,y).type = 'floor';
              }
         }
+
+        // エンティティ配置
         this.placeEntity({ type: 'stairs' }, 1);
-        this.placeEntity({ type: 'item', item: ItemFactory.create('救急キット') }, 2);
-        this.placeEntity({ type: 'trap', damage: 10 }, 5);
+        this.placeEntity({ type: 'item', item: ItemFactory.create('救急キット') }, 1);
+        this.placeEntity({ type: 'item', item: ItemFactory.create('銅の鍵') }, 1); // 鍵を配置
+        this.placeEntity({ type: 'trap', damage: 10 }, 3 + Math.floor(floor/2)); // 階層で罠が増える
         
-        this.enemy = new Enemy(this);
+        // ★★改良: 宝箱を配置
+        const chestLoot = ['スタミナドリンク', '救急キット', '閃光弾'];
+        const randomLoot = chestLoot[Math.floor(Math.random() * chestLoot.length)];
+        this.placeEntity({ type: 'chest', locked: true, contains: randomLoot }, 1);
+        
+        this.enemy = new Enemy(this, floor); // ★★改良: 敵に階層を渡す
     }
 
+    // ★★改良: 特定のエンティティを探すヘルパー関数
+    findEntity(type) {
+        for (let y = 0; y < this.height; y++) {
+            for (let x = 0; x < this.width; x++) {
+                const tile = this.getTile(x, y);
+                if (tile.entity?.type === type) {
+                    return { x, y };
+                }
+            }
+        }
+        return null;
+    }
+    
+    // ... (placeEntity, getTile, getEmptyTile, isWalkable, updatePlayerVision, renderMap, isPlayerOnSameTileAsEnemy, updateShadowProximity は前回と同様)
     placeEntity(entity, count) {
         for(let i=0; i<count; i++) {
             const pos = this.getEmptyTile();
@@ -439,7 +512,7 @@ class Dungeon {
         do {
             x = Math.floor(Math.random() * this.width);
             y = Math.floor(Math.random() * this.height);
-            if (attempts++ > 1000) return null; // 無限ループ防止
+            if (attempts++ > 1000) return null;
         } while (this.getTile(x, y).type !== 'floor' || this.getTile(x,y).entity);
         return { x, y };
     }
@@ -506,8 +579,9 @@ class Dungeon {
 // 敵クラス (AIロジック)
 // ==================================================================
 class Enemy {
-    constructor(dungeon) {
+    constructor(dungeon, floor) { // ★★改良: 階層を受け取る
         this.dungeon = dungeon;
+        this.floor = floor;
         this.x = 0; this.y = 0;
         this.mode = null;
         this.spec = null;
@@ -520,7 +594,13 @@ class Enemy {
     setMode(newMode, durationOverride = null) {
         if (this.mode === newMode) return;
         this.mode = newMode;
-        this.spec = GameConfig.ENEMY_AI[newMode];
+        
+        const baseSpec = GameConfig.ENEMY_AI[newMode];
+        // ★★改良: 階層に応じてスペックを調整
+        this.spec = { ...baseSpec };
+        this.spec.speed = baseSpec.baseSpeed + Math.floor(this.floor / 2); // 2階層ごとに速度+1
+        this.spec.duration = baseSpec.baseDuration + this.floor * 2; // アクティブモードなどが長くなる
+        
         this.modeTimer = durationOverride || this.spec.duration;
         Game.logMessage(this.spec.message, this.mode === 'active' ? 'danger' : 'warning');
 
@@ -528,7 +608,8 @@ class Enemy {
             this.wanderAnchor = {x: this.x, y: this.y};
         }
     }
-
+    
+    // ... (update, moveTowards, moveLooselyTowards, moveWandering, warp は前回と同様のロジック)
     update() {
         this.modeTimer--;
         const player = Game.player;
@@ -541,7 +622,7 @@ class Enemy {
                 else if (this.modeTimer <= 0) this.setMode('wander_b');
                 break;
             case 'active':
-                if (dist > this.spec.detectionRange + 2 || this.modeTimer <= 0) this.setMode('wander_a');
+                if (dist > this.spec.detectionRange + 3 || this.modeTimer <= 0) this.setMode('wander_a');
                 break;
             case 'wander_a':
                 if (this.modeTimer <= 0) this.setMode('wander_b');
@@ -549,17 +630,17 @@ class Enemy {
             case 'wander_b':
                 if (dist <= this.spec.detectionRange) this.setMode('active');
                 else if (this.modeTimer <= 0 && Math.random() < 0.3) this.setMode('search');
-                else if (this.modeTimer <= 0) this.modeTimer = this.spec.duration; // タイマーリセット
+                else if (this.modeTimer <= 0) this.modeTimer = this.spec.duration;
                 break;
         }
-
-        // 行動実行
-        for(let i=0; i < (this.spec.speed / 10); i++) { // 速度に応じて複数回移動
+        
+        // 速度が10なら1回、15なら1.5回(確率で2回)行動
+        const moves = Math.floor(this.spec.speed / 10) + (Math.random() < (this.spec.speed % 10) / 10 ? 1 : 0);
+        for(let i=0; i < moves; i++) {
              switch(this.mode) {
                 case 'active': this.moveTowards(player.x, player.y); break;
                 case 'search': this.moveLooselyTowards(player.x, player.y); break;
-                case 'wander_a':
-                case 'wander_b': this.moveWandering(); break;
+                case 'wander_a': case 'wander_b': this.moveWandering(); break;
             }
         }
     }
