@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>Shadow Diver: Abyssal Echoes</title>
     <link href="style.css" rel="stylesheet" type="text/css">
 </head>
@@ -18,8 +18,13 @@
         </header>
 
         <main>
-            <div id="map-container">
+            <div id="views-container">
+                <div id="main-view-container">
+                    <p id="main-view-text">深淵があなたを待っている...</p>
                 </div>
+                <div id="map-container">
+                    </div>
+            </div>
         </main>
 
         <footer>
@@ -31,6 +36,16 @@
                 <ul id="inventory-list"></ul>
             </div>
         </footer>
+    </div>
+
+    <div id="floating-controller">
+        <button class="controller-btn" id="btn-up">▲</button>
+        <div class="middle-row">
+            <button class="controller-btn" id="btn-left">◀</button>
+            <button class="controller-btn" id="btn-interact">◎</button>
+            <button class="controller-btn" id="btn-right">▶</button>
+        </div>
+        <button class="controller-btn" id="btn-down">▼</button>
     </div>
 
     <div id="overlay">
