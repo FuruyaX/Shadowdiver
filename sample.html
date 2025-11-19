@@ -8,7 +8,8 @@
     <script src="https://cdn.tailwindcss.com"></script>
     
     <style>
-        body { margin: 0; overflow: hidden; background-color: #000; touch-action: none; user-select: none; }
+        /* 背景色を完全な黒ではなく濃いグレーにして、レンダリングエラーと区別しやすく変更 */
+        body { margin: 0; overflow: hidden; background-color: #111; touch-action: none; user-select: none; }
         #game-container { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
         
         /* UI Overlay Styling */
@@ -102,8 +103,9 @@
         DASH_MULTIPLIER: 2.0,
         PLAYER_SIZE: 0.4,
         ENEMY_SIZE: 0.4,
-        FOG_NEAR: 5,
-        FOG_FAR: 15, // [Source: 12] 視界制限・フォグ
+        // [修正] フォグの開始位置を遠くし、手前が見えるように変更
+        FOG_NEAR: 8, 
+        FOG_FAR: 25,  // [Source: 12] 視界制限・フォグ
         GRID_SIZE: 40, // ダンジョン全体のグリッドサイズ
         ROOM_MIN_SIZE: 4,
         STALKER_RESPAWN_TIME: 10000, // ms
@@ -116,8 +118,8 @@
         STALKER: 0x000000,// 黒
         ITEM: 0xffff00,   // 黄色
         ATTACK_PREVIEW: 0xffcccc, // 薄い赤
-        WALL: 0x444444,
-        FLOOR: 0x222222
+        WALL: 0x888888,   // [修正] 壁の色を明るく
+        FLOOR: 0x444444   // [修正] 床の色を明るく
     };
 
     // グローバルステート
@@ -151,24 +153,25 @@
     
     function init() {
         try {
-            // [Source: 6] Three.js セットアップ
             const container = document.getElementById('game-container');
             scene = new THREE.Scene();
             // [Source: 12] フォグの設定
-            scene.fog = new THREE.Fog(0x000000, SETTINGS.FOG_NEAR, SETTINGS.FOG_FAR);
+            // [修正] フォグの色を少し明るいグレーにして、完全な暗闇を防ぐ
+            scene.background = new THREE.Color(0x111111); 
+            scene.fog = new THREE.Fog(0x111111, SETTINGS.FOG_NEAR, SETTINGS.FOG_FAR);
 
             camera = new THREE.PerspectiveCamera(SETTINGS.FOV, window.innerWidth / window.innerHeight, 0.1, 1000);
             renderer = new THREE.WebGLRenderer({ antialias: true });
             renderer.setSize(window.innerWidth, window.innerHeight);
             renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // パフォーマンス調整
             container.appendChild(renderer.domElement);
-
-            // Lighting
-            const ambientLight = new THREE.AmbientLight(0x404040, 2); // 明るめ
-            scene.add(ambientLight);
-            const dirLight = new THREE.DirectionalLight(0xffffff, 1);
-            dirLight.position.set(0, 10, 5);
-            scene.add(dirLight);
+            
+            // // Lighting
+            // const ambientLight = new THREE.AmbientLight(0x404040, 2); // 明るめ
+            // scene.add(ambientLight);
+            // const dirLight = new THREE.DirectionalLight(0xffffff, 1);
+            // dirLight.position.set(0, 10, 5);
+            // scene.add(dirLight);
 
             // Minimap Context
             const minimapCanvas = document.getElementById('minimap-canvas');
@@ -190,7 +193,6 @@
     }
 
     function setupUI() {
-        // Mode Selection
         document.querySelectorAll('.mode-btn').forEach(btn => {
             btn.addEventListener('click', (e) => {
                 document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('border-green-500'));
@@ -263,20 +265,24 @@
     }
 
     function generateDungeon(floor) {
-        // リセット
+        // リセット: 全オブジェクト削除
         // [Source: 7] 実装コードではThree.jsの標準ジオメトリで代替。古いメッシュを破棄
         while(scene.children.length > 0){ 
             scene.remove(scene.children[0]); 
         }
         
-        // ライト再配置
-        const amb = new THREE.AmbientLight(0x404040, 2);
+        // [修正] プレイヤーメッシュの参照もリセット（再作成させるため）
+        // これを行わないと、削除されたメッシュを操作し続けて画面に映らない
+        playerMesh = null;
+
+        // ライト再配置 (明るめに設定)
+        const amb = new THREE.AmbientLight(0xffffff, 1.5); // [修正] 強度アップ
         scene.add(amb);
-        const dl = new THREE.DirectionalLight(0xffffff, 1);
-        dl.position.set(0, 10, 5);
+        const dl = new THREE.DirectionalLight(0xffffff, 2); // [修正] 強度アップ
+        dl.position.set(10, 20, 10);
         scene.add(dl);
 
-        state.dungeon = Array(SETTINGS.GRID_SIZE).fill().map(() => Array(SETTINGS.GRID_SIZE).fill(0)); // 0:Wall
+        state.dungeon = Array(SETTINGS.GRID_SIZE).fill().map(() => Array(SETTINGS.GRID_SIZE).fill(0));
         state.rooms = [];
         state.entities = [];
 
@@ -287,16 +293,14 @@
         for (let i = 0; i < iterations; i++) {
             let newNodes = [];
             nodes.forEach(n => {
-                if (n.split()) {
-                    newNodes.push(n.left, n.right);
-                } else {
-                    newNodes.push(n);
-                }
+                if (n.split()) newNodes.push(n.left, n.right);
+                else newNodes.push(n);
             });
             nodes = newNodes;
         }
         root.createRooms();
 
+        // マップデータ書き込み
         // グリッドに部屋を反映
         state.rooms.forEach(r => {
             for (let y = r.y; y < r.y + r.h; y++) {
@@ -339,19 +343,12 @@
         // [Source: 9] 罠は避けて通れるように配置（簡易実装: 部屋の中央付近のみなど）
         state.rooms.forEach((r, idx) => {
             if(idx === 0 || idx === state.rooms.length - 1) return; // スタートとゴールは除外
-
             // 敵
-            if(Math.random() > 0.3) {
-                spawnEntity('enemy', r.x + Math.floor(r.w/2), r.y + Math.floor(r.h/2));
-            }
+            if(Math.random() > 0.3) spawnEntity('enemy', r.x + Math.floor(r.w/2), r.y + Math.floor(r.h/2));
             // アイテム
-            if(Math.random() > 0.6) {
-                spawnEntity('item', r.x + 1, r.y + 1);
-            }
+            if(Math.random() > 0.6) spawnEntity('item', r.x + 1, r.y + 1);
             // 罠
-            if(Math.random() > 0.7) {
-                spawnEntity('trap', r.x + r.w - 2, r.y + r.h - 2);
-            }
+            if(Math.random() > 0.7) spawnEntity('trap', r.x + r.w - 2, r.y + r.h - 2);
         });
 
         // [Source: 17] 追跡者: 新規階層突入時にランダム配置
@@ -365,23 +362,26 @@
     }
 
     function buildDungeonMesh() {
+        // [修正] MeshStandardMaterialに変更して光の反応を良くする
         // 単純化のため、CubeGeometryを統合せず個別に配置（最適化の余地ありだが要件範囲内）
         const wallGeo = new THREE.BoxGeometry(1, 2, 1);
-        const wallMat = new THREE.MeshLambertMaterial({ color: COLORS.WALL });
+        const wallMat = new THREE.MeshStandardMaterial({ color: COLORS.WALL, roughness: 0.8 });
         const floorGeo = new THREE.PlaneGeometry(1, 1);
-        const floorMat = new THREE.MeshLambertMaterial({ color: COLORS.FLOOR });
+        const floorMat = new THREE.MeshStandardMaterial({ color: COLORS.FLOOR, roughness: 0.8 });
         
         const group = new THREE.Group();
 
         for (let y = 0; y < SETTINGS.GRID_SIZE; y++) {
             for (let x = 0; x < SETTINGS.GRID_SIZE; x++) {
                 if (state.dungeon[y][x] === 0) {
-                    // Wall
+                    // Wall (少しランダムな高さにして見た目を改善)
+                    const h = 1.5 + Math.random() * 0.5;
                     // 壁の当たり判定は論理グリッドで行うため、ここでは視覚表現のみ
                     // パフォーマンスのため、床に隣接する壁のみ描画等の処理をすべきだが、今回は全描画
                     // 壁の高さをランダムにして洞窟感を出すのもあり
                     const wall = new THREE.Mesh(wallGeo, wallMat);
-                    wall.position.set(x, 1, y);
+                    wall.scale.y = h; 
+                    wall.position.set(x, h/2, y);
                     group.add(wall);
                 } else {
                     // Floor
@@ -407,7 +407,7 @@
             this.mesh = null;
             this.active = true;
             this.hp = 100;
-            this.maxHp = 100;
+            // this.maxHp = 100;
             
             this.initMesh();
         }
@@ -419,15 +419,15 @@
             switch(this.type) {
                 case 'player':
                     geo = new THREE.SphereGeometry(SETTINGS.PLAYER_SIZE, 16, 16);
-                    mat = new THREE.MeshLambertMaterial({ color: COLORS.PLAYER });
+                    mat = new THREE.MeshStandardMaterial({ color: COLORS.PLAYER, emissive: 0x004400 });
                     break;
                 case 'enemy':
                     geo = new THREE.BoxGeometry(SETTINGS.ENEMY_SIZE, SETTINGS.ENEMY_SIZE, SETTINGS.ENEMY_SIZE);
-                    mat = new THREE.MeshLambertMaterial({ color: COLORS.ENEMY });
+                    mat = new THREE.MeshStandardMaterial({ color: COLORS.ENEMY });
                     break;
                 case 'stalker':
                     geo = new THREE.BoxGeometry(SETTINGS.ENEMY_SIZE * 1.5, SETTINGS.ENEMY_SIZE * 1.5, SETTINGS.ENEMY_SIZE * 1.5);
-                    mat = new THREE.MeshLambertMaterial({ color: COLORS.STALKER });
+                    mat = new THREE.MeshStandardMaterial({ color: COLORS.STALKER });
                     break;
                 case 'item':
                     geo = new THREE.OctahedronGeometry(0.2);
@@ -482,7 +482,7 @@
             this.speed = 0.03;
             this.attackRange = 1.2;
             this.attackCooldown = 0;
-            this.respawnTimer = 0;
+            // this.respawnTimer = 0;
         }
 
         update(dt, time) {
@@ -534,7 +534,7 @@
                     // [Source: 19] 移動しない。ヘイト大きく増加しやすい
                     // 停止中は被ダメージ増加などのデバフがあっても良いが仕様にはないので省略
                     if(pDist < 3) this.hate += 50 * dt; // 近くにいると激増
-
+                    
                     this.modeTimer -= dt;
                     if(this.modeTimer <= 0) {
                         if(this.hate > 80) this.changeMode('FRENZY');
@@ -557,8 +557,7 @@
         changeMode(newMode) {
             if(this.mode === newMode) return;
             this.mode = newMode;
-            logMessage(`Stalker entered ${newMode} mode!`);
-
+            logMessage(`Stalker: ${newMode}`);
             if(newMode === 'FRENZY') this.modeTimer = 10; // 10秒暴れる
             if(newMode === 'STOP') this.modeTimer = 5;    // 5秒停止
         }
@@ -587,8 +586,7 @@
 
         startAttack() {
             // [Source: 20] 予兆表示 -> ラグ -> 判定
-            this.attackCooldown = 3.0; // CD
-            
+            this.attackCooldown = 3.0; // CD 3秒
             // 予兆メッシュ
             const indicator = new THREE.Mesh(
                 new THREE.RingGeometry(0.1, 1.0, 32),
@@ -625,9 +623,11 @@
     function spawnPlayer(x, y) {
         player.x = x;
         player.y = y;
+        // [修正] playerMeshがnullの場合（シーンクリア後）は必ず再作成する
         if(!playerMesh) {
             playerMesh = new Entity('player', x, y).mesh;
         } else {
+            // ここには来ないはずだが、念のため
             playerMesh.position.set(x, 0.5, y);
         }
     }
@@ -719,17 +719,17 @@
             if(!checkCollision(nextX, nextY)) {
                 player.x = nextX;
                 player.y = nextY;
-                
-                // [Source: 13] 移動時は移動方向に回転
-                const moveAngle = Math.atan2(dy, dx);
-                // Player Mesh Rotation (visual only)
-                // playerMesh.rotation.y = -moveAngle; 
+                // // [Source: 13] 移動時は移動方向に回転
+                // const moveAngle = Math.atan2(dy, dx);
+                // // Player Mesh Rotation (visual only)
+                // // playerMesh.rotation.y = -moveAngle; 
             }
         }
-
         // メッシュ同期
-        playerMesh.position.x = player.x;
-        playerMesh.position.z = player.y;
+        if(playerMesh) {
+            playerMesh.position.x = player.x;
+            playerMesh.position.z = player.y;
+        }
 
         // [Source: 14] カメラ操作 (PC: Arrow Keys, Mobile: Right Slide)
         if(state.keys['arrowleft']) state.cameraAngle -= 2 * dt;
@@ -738,9 +738,10 @@
     }
 
     function updateCamera() {
-        // プレイヤー追従 TPS視点
-        const dist = 5;
-        const height = 4;
+       // プレイヤー追従 TPS視点
+        // カメラ位置調整：プレイヤーの少し後ろ上空
+        const dist = 6;
+        const height = 5;
         
         const cx = player.x + Math.sin(state.cameraAngle) * dist;
         const cz = player.y + Math.cos(state.cameraAngle) * dist;
@@ -817,7 +818,8 @@
         const stalker = state.entities.find(e => e.type === 'stalker');
         if(stalker && stalker.active) {
             stalker.hate += amount;
-            logMessage(`Stalker Hate Increased! (${Math.floor(stalker.hate)})`);
+            // logMessage(`Stalker Hate Increased! (${Math.floor(stalker.hate)})`);
+            logMessage(`Stalker Hate Increased!`);
         }
     }
 
@@ -867,7 +869,6 @@
             if(!e.active) return;
             // [Source: 11] 追跡者のみ表示されない
             if(e.type === 'stalker') return;
-
             const mx = (e.x - player.x) * scale;
             const my = (e.y - player.y) * scale;
 
@@ -926,6 +927,7 @@
 
         // [Source: 10] UI更新（ST, HP）
         document.getElementById('st-display').innerText = `ST: ${Math.floor(player.st)}/100`;
+        renderer.render(scene, camera);
     }
 
     // ==========================================
@@ -961,10 +963,8 @@
             // Limit distance
             const dist = Math.min(40, Math.sqrt(dx*dx + dy*dy));
             const angle = Math.atan2(dy, dx);
-            
             const kx = Math.cos(angle) * dist;
             const ky = Math.sin(angle) * dist;
-            
             knob.style.transform = `translate(calc(-50% + ${kx}px), calc(-50% + ${ky}px))`;
             
             // Normalize output -1 to 1
@@ -1017,7 +1017,6 @@
                         // エフェクト（簡易）
                         e.mesh.material.color.setHex(0xff0000);
                         setTimeout(() => e.mesh.material.color.setHex(e.type==='stalker' ? COLORS.STALKER : COLORS.ENEMY), 200);
-                        
                         if(e.type === 'stalker') {
                             e.active = false;
                             e.mesh.visible = false;
