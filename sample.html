@@ -3,13 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>リアルタイム戦略ローグライク：ディープダイバー v2</title>
+    <title>リアルタイム戦略ローグライク：ディープダイバー</title>
     <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Three.js CDN -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- カスタムCSS -->
     <style>
-        /* カスタムCSS */
         body, html, #game-container {
             margin: 0;
             padding: 0;
@@ -23,7 +23,6 @@
             display: block;
             width: 100%;
             height: 100%;
-            z-index: 0; /* 3D空間を最背面に */
         }
         #ui-overlay {
             position: absolute;
@@ -33,1290 +32,795 @@
             height: 100%;
             pointer-events: none; /* UI要素以外を操作できるようにする */
         }
-        
-        /* デスクトップ/横長画面でのUI配置 (既存の配置を維持) */
         .minimap-container {
+            /* ミニマップのスタイル */
             position: absolute;
-            top: 20px;
-            right: 20px;
-            width: 200px;
-            height: 200px;
-            background-color: rgba(0, 0, 0, 0.7);
-            border: 2px solid #333;
-            border-radius: 8px;
-            pointer-events: all; /* ミニマップ自体は操作不可だが、UIとしてはポインタを受け取る */
-            z-index: 1;
-        }
-        #message-log {
-            position: absolute;
-            top: 20px;
-            left: 20px;
-            width: 300px;
+            top: 1rem;
+            right: 1rem;
+            width: 150px;
             height: 150px;
-            overflow-y: auto;
-            background-color: rgba(0, 0, 0, 0.7);
-            padding: 8px;
+            border: 2px solid #374151; /* gray-700 */
             border-radius: 8px;
-            pointer-events: all;
-            z-index: 1;
+            background-color: rgba(0, 0, 0, 0.7);
+            pointer-events: auto; /* クリック可能に戻す */
         }
-        
-        /* モバイル縦長画面用のレイアウト調整 */
-        @media (max-width: 640px) and (orientation: portrait) {
-            #ui-overlay {
-                display: flex;
-                flex-direction: column; /* UI要素を縦にスタック */
-                justify-content: space-between;
-                padding: 0.5rem;
-                box-sizing: border-box;
-            }
-            
-            /* 上部UI: ステータス、ミニマップ、メッセージログ */
-            .top-ui-area {
-                display: flex;
-                flex-direction: column;
-                gap: 0.5rem;
-                width: 100%;
-            }
-            
-            #status-display {
-                position: static !important; /* 絶対配置を解除 */
-                width: 100%;
-            }
-
-            .minimap-container {
-                position: static !important; 
-                width: 100%; 
-                height: 15vh; /* 画面高さの15%に */
-                margin: 0;
-            }
-
-            #message-log {
-                position: static !important; 
-                width: 100%; 
-                height: 10vh; /* 画面高さの10%に */
-                margin: 0;
-            }
-
-            /* 下部UI: インベントリ、アクションリスト */
-            .bottom-ui-area {
-                display: flex;
-                flex-direction: row; /* 横に並べる */
-                gap: 0.5rem;
-                width: 100%;
-                margin-top: auto; /* 下部に寄せる */
-            }
-
-            #item-inventory, #action-list {
-                position: static !important;
-                flex-grow: 1; /* 幅を均等に */
-                height: 15vh;
-                margin: 0;
-            }
+        .log-message-box {
+            max-height: 150px;
+            overflow-y: auto;
+            pointer-events: none;
         }
-        
-        /* フローティングコントローラ用オーバーレイの基本スタイル */
-        #floating-controller-overlay {
+        /* スクロールバーのスタイル調整 */
+        .log-message-box::-webkit-scrollbar {
+            width: 6px;
+        }
+        .log-message-box::-webkit-scrollbar-thumb {
+            background-color: #4b5563;
+            border-radius: 3px;
+        }
+        .joystick-container {
             position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            z-index: 2; /* UIの上に配置 */
-            pointer-events: none; /* デフォルトでは非アクティブ */
-        }
-
-        /* ジョイスティックのスタイル */
-        .joystick-base {
-            position: absolute;
-            bottom: 50px;
-            left: 50px;
+            bottom: 2rem;
+            left: 2rem;
             width: 100px;
             height: 100px;
-            background-color: rgba(100, 100, 100, 0.5);
+            background-color: rgba(0, 0, 0, 0.5);
             border-radius: 50%;
-            pointer-events: all; /* タッチを受け付ける */
+            pointer-events: auto; /* タッチ操作を有効にする */
+            display: none; /* 初期状態では非表示 */
         }
-        .joystick-stick {
+        .joystick-handle {
             position: absolute;
             top: 50%;
             left: 50%;
             transform: translate(-50%, -50%);
-            width: 50px;
-            height: 50px;
-            background-color: rgba(255, 255, 255, 0.8);
+            width: 40px;
+            height: 40px;
+            background-color: rgba(255, 255, 255, 0.7);
             border-radius: 50%;
         }
     </style>
-    <!-- Firebase SDKs -->
-    <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, setDoc, getDoc, collection, query, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-        
-        // グローバル変数として設定: メインスクリプトから参照できるようにする
-        window.initializeApp = initializeApp;
-        window.getAuth = getAuth;
-        window.signInAnonymously = signInAnonymously;
-        window.signInWithCustomToken = signInWithCustomToken;
-        window.onAuthStateChanged = onAuthStateChanged;
-        window.getFirestore = getFirestore;
-        window.doc = doc;
-        window.setDoc = setDoc;
-        window.getDoc = getDoc;
-        window.collection = collection;
-        window.query = query;
-        window.onSnapshot = onSnapshot;
-    </script>
 </head>
-<body class="bg-gray-900 text-white">
-    <div id="game-container" class="relative w-screen h-screen">
-        <!-- 3Dレンダリング用キャンバス -->
+<body class="select-none">
+    <!-- メインのゲームコンテナ -->
+    <div id="game-container" class="relative w-full h-full">
         <canvas id="main-canvas"></canvas>
-
-        <!-- UIオーバーレイ (常に最前面) -->
-        <div id="ui-overlay" class="mobile-stack">
-            <!-- 上部UIエリア (モバイル縦長時にスタック) -->
-            <div class="top-ui-area absolute top-0 left-0 p-5 w-full md:p-2 md:w-auto md:flex md:flex-row md:gap-4">
-                
-                <!-- メッセージログ -->
-                <div id="message-log" class="text-xs text-green-300 font-mono hidden md:block">
-                    <!-- メッセージはJSでここに追加される -->
+        
+        <!-- UIオーバーレイ -->
+        <div id="ui-overlay" class="text-white p-4 flex flex-col justify-between">
+            <!-- 上部UI (ステータスバー, ミニマップ) -->
+            <div class="flex justify-between items-start w-full">
+                <!-- ステータスバー -->
+                <div id="status-bar" class="bg-gray-800/80 p-3 rounded-xl shadow-lg pointer-events-auto flex flex-col space-y-2">
+                    <div id="status-hp" class="text-sm font-bold">HP: 100/100</div>
+                    <div id="status-st" class="text-sm font-bold">ST: 100/100</div>
+                    <div id="status-mov" class="text-sm font-bold">MOV: 10</div>
+                    <div id="status-floor" class="text-sm font-bold">階層: B1F</div>
                 </div>
-                
-                <!-- ステータス表示 -->
-                <div id="status-display" class="bg-gray-800 bg-opacity-70 p-3 rounded-xl shadow-lg border border-gray-700 w-full md:w-64">
-                    <p>HP: <span id="player-hp">100</span> / 100</p>
-                    <div class="h-2 bg-red-900 rounded-full my-1"><div id="hp-bar" class="h-full bg-red-500 rounded-full transition-all duration-300" style="width: 100%;"></div></div>
-                    <p>ST: <span id="player-st">100</span> / 100</p>
-                    <div class="h-2 bg-blue-900 rounded-full my-1"><div id="st-bar" class="h-full bg-blue-500 rounded-full transition-all duration-300" style="width: 100%;"></div></div>
-                    <p>階層: <span id="current-floor">1</span></p>
-                    <p>モード: <span id="current-mode-display">ストーリー</span></p>
-                </div>
-                
                 <!-- ミニマップコンテナ -->
-                <div class="minimap-container">
-                    <canvas id="minimap-canvas" class="rounded-lg w-full h-full"></canvas>
+                <div class="minimap-container shadow-2xl">
+                    <canvas id="minimap-canvas" class="rounded-lg"></canvas>
                 </div>
-
             </div>
 
-            <!-- 下部UIエリア (モバイル縦長時に横並び) -->
-            <div class="bottom-ui-area absolute bottom-0 left-0 p-5 w-full md:p-2 md:w-auto md:flex md:flex-row md:gap-4">
-                
-                <!-- アイテムインベントリ -->
-                <div id="item-inventory" class="bg-gray-800 bg-opacity-70 p-3 rounded-xl shadow-lg border border-gray-700 overflow-y-auto w-full md:w-64">
-                    <h3 class="font-bold border-b border-gray-600 mb-2">インベントリ (1: 使用)</h3>
-                    <ul id="item-list" class="text-sm">
-                        <!-- アイテムはJSでここに追加される -->
-                        <li>煙玉 x 2</li>
-                        <li>回復薬 x 1</li>
-                    </ul>
+            <!-- 下部UI (アクション/インベントリ, メッセージログ) -->
+            <div class="flex justify-between items-end w-full">
+                <!-- アクション/インベントリ -->
+                <div id="action-inventory" class="bg-gray-800/80 p-3 rounded-xl shadow-lg pointer-events-auto flex space-x-2">
+                    <button class="action-button bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg transition" data-action="attack">攻撃 (Z)</button>
+                    <button class="action-button bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg transition" data-action="item1">アイテム1 (X)</button>
+                    <button class="action-button bg-yellow-600 hover:bg-yellow-700 text-white font-bold py-2 px-4 rounded-lg transition" data-action="item2">アイテム2 (C)</button>
                 </div>
-
-                <!-- アクションリスト (ショートカットキー表示) -->
-                <div id="action-list" class="bg-gray-800 bg-opacity-70 p-3 rounded-xl shadow-lg border border-gray-700 w-full md:w-64">
-                    <h3 class="font-bold border-b border-gray-600 mb-2">アクション</h3>
-                    <ul class="text-sm space-y-1">
-                        <li>[Shift]: ダッシュ (ヘイト大)</li>
-                        <li>[1]: アイテム使用 (Use Item)</li>
-                        <li>[2]: 攻撃 (Attack)</li>
-                        <li>[3]: 探索 (Search)</li>
-                        <li>[4]: 待機 (Wait)</li>
-                    </ul>
+                <!-- メッセージログ -->
+                <div id="message-log" class="w-1/3 bg-gray-800/80 p-3 rounded-xl shadow-lg pointer-events-auto log-message-box">
+                    <!-- ログメッセージがここに追加されます -->
                 </div>
-                
             </div>
-            
-            <!-- モバイルUI: メッセージログ (モバイル用) -->
-            <div id="mobile-message-log" class="md:hidden bg-gray-800 bg-opacity-70 p-3 rounded-xl shadow-lg border border-gray-700 overflow-y-auto text-xs text-green-300 font-mono">
-                 <!-- メッセージはJSでここに追加される -->
-                 <p>メッセージログ (スマホ)</p>
+
+            <!-- 仮想ジョイスティック (モバイル用) -->
+            <div id="joystick-container" class="joystick-container">
+                <div id="joystick-handle" class="joystick-handle"></div>
             </div>
         </div>
 
-        <!-- フローティングコントローラ オーバーレイ (モバイルでのみ表示) -->
-        <div id="floating-controller-overlay" class="md:hidden">
-            <!-- 視点移動用スワイプエリアは右側の広い範囲でタッチイベントで処理 -->
+        <!-- タイトル画面 -->
+        <div id="title-screen" class="absolute inset-0 bg-gray-900/95 flex flex-col items-center justify-center space-y-8 transition-opacity duration-500">
+            <h1 class="text-6xl font-extrabold text-white tracking-widest">DEEP DIVER</h1>
+            <p class="text-xl text-gray-400">リアルタイム戦略ローグライク</p>
             
-            <!-- 移動用ジョイスティック -->
-            <div id="joystick-base" class="joystick-base">
-                <div id="joystick-stick" class="joystick-stick"></div>
+            <div id="mode-selection" class="flex space-x-4">
+                <button data-mode="story" class="mode-option bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-xl shadow-lg transition duration-200">
+                    ストーリー
+                </button>
+                <button data-mode="plunder" class="mode-option bg-gray-700 hover:bg-gray-600 text-white font-bold py-3 px-6 rounded-xl shadow-lg transition duration-200">
+                    盗掘
+                </button>
+                <button data-mode="endless" class="mode-option bg-gray-700 hover:bg-gray-600 text-white font-bold py-3 px-6 rounded-xl shadow-lg transition duration-200">
+                    エンドレス
+                </button>
             </div>
-        </div>
-
-
-        <!-- タイトル/ゲームオーバー画面 -->
-        <div id="title-screen" class="absolute inset-0 bg-gray-900 flex flex-col items-center justify-center space-y-6 z-20">
-            <h1 class="text-6xl font-extrabold text-teal-400">ディープダイバー</h1>
-            <h2 class="text-2xl text-gray-400 mb-8">リアルタイム戦略ローグライク</h2>
+            
             <div class="flex flex-col space-y-4 w-64">
-                <button id="menu-new-game" class="menu-button bg-teal-600 hover:bg-teal-700 text-white font-bold py-3 px-4 rounded-xl transition duration-200 shadow-xl">初めから</button>
-                <button id="menu-continue" class="menu-button bg-gray-700 hover:bg-gray-600 text-white font-bold py-3 px-4 rounded-xl transition duration-200 shadow-xl" disabled>続きから</button>
-                <button id="menu-controls" class="menu-button bg-gray-700 hover:bg-gray-600 text-white font-bold py-3 px-4 rounded-xl transition duration-200 shadow-xl">操作方法</button>
-                
-                <!-- モード選択 -->
-                <div class="p-3 bg-gray-800 rounded-xl">
-                    <p class="text-center text-gray-300 mb-2">モード</p>
-                    <div id="mode-selection" class="flex justify-between space-x-2">
-                        <button data-mode="story" class="mode-option flex-1 text-xs py-2 px-1 rounded-lg transition duration-150 bg-teal-600">ストーリー</button>
-                        <button data-mode="plunder" class="mode-option flex-1 text-xs py-2 px-1 rounded-lg transition duration-150 bg-gray-700">盗掘</button>
-                        <button data-mode="endless" class="mode-option flex-1 text-xs py-2 px-1 rounded-lg transition duration-150 bg-gray-700">エンドレス</button>
-                    </div>
-                </div>
+                <button id="menu-new-game" class="bg-red-600 hover:bg-red-700 text-white font-bold py-4 rounded-xl shadow-xl transition duration-200 text-lg">
+                    ゲームスタート
+                </button>
+                <button id="menu-controls" class="bg-gray-600 hover:bg-gray-700 text-white font-bold py-3 rounded-xl transition duration-200">
+                    操作方法
+                </button>
             </div>
         </div>
         
-        <div id="gameover-screen" class="absolute inset-0 bg-red-900 bg-opacity-70 flex-col items-center justify-center space-y-6 z-20 hidden">
-            <h1 class="text-7xl font-extrabold text-white animate-pulse">GAME OVER</h1>
-            <p class="text-2xl text-white">追跡者による即死攻撃でHPが0になりました...</p>
-            <button id="restart-button" class="bg-gray-700 hover:bg-gray-600 text-white font-bold py-3 px-6 rounded-xl transition duration-200 shadow-xl">タイトルへ戻る</button>
+        <!-- ゲームオーバー画面 -->
+        <div id="game-over-screen" class="hidden absolute inset-0 bg-red-900/90 flex flex-col items-center justify-center space-y-8 transition-opacity duration-500">
+            <h2 class="text-7xl font-extrabold text-white">GAME OVER</h2>
+            <p id="game-over-reason" class="text-2xl text-red-300">HPが0になりました。</p>
+            <button id="restart-button" class="bg-gray-600 hover:bg-gray-700 text-white font-bold py-3 px-8 rounded-xl shadow-xl transition duration-200 text-xl">
+                タイトルに戻る
+            </button>
         </div>
 
         <!-- 操作説明モーダル -->
-        <div id="control-modal" class="absolute inset-0 bg-gray-900 bg-opacity-95 hidden items-center justify-center z-30">
-            <div class="bg-gray-800 p-8 rounded-xl max-w-lg w-full text-center shadow-2xl">
-                <h2 class="text-3xl font-bold mb-6 text-teal-400">操作方法</h2>
-                <div class="text-left space-y-3">
-                    <p class="text-lg font-semibold text-white">キーボード / マウス操作</p>
-                    <ul class="list-disc list-inside ml-4 text-gray-300">
-                        <li><span class="font-mono bg-gray-700 p-1 rounded">W/A/S/D</span>: 移動</li>
-                        <li><span class="font-mono bg-gray-700 p-1 rounded">Shift</span>: ダッシュ (移動速度1.5倍、ヘイト増加)</li>
-                        <li><span class="font-mono bg-gray-700 p-1 rounded">マウス/矢印キー</span>: 視点移動/旋回</li>
-                        <li><span class="font-mono bg-gray-700 p-1 rounded">1/2/3/4</span>: ショートカットアクション (アイテム使用/攻撃/探索/待機)</li>
-                        <li><span class="font-mono bg-gray-700 p-1 rounded">Esc</span>: マウスカーソル解放</li>
-                    </ul>
-                    <p class="text-lg font-semibold text-white mt-4">モバイル / タッチ操作</p>
-                    <ul class="list-disc list-inside ml-4 text-gray-300">
-                        <li><span class="font-semibold text-teal-300">左下ジョイスティック</span>: 移動 (スティックを最大まで倒すとダッシュ)</li>
-                        <li><span class="font-semibold text-teal-300">画面右側スワイプ</span>: 視点移動/旋回</li>
-                        <li>UI上のボタン: アイテム使用、攻撃、探索、待機 (未実装)</li>
-                    </ul>
+        <div id="control-modal" class="hidden absolute inset-0 bg-gray-900/90 flex items-center justify-center">
+            <div class="bg-gray-800 p-8 rounded-xl shadow-2xl w-3/4 max-w-lg space-y-6">
+                <h2 class="text-3xl font-bold text-white border-b border-gray-700 pb-2">操作方法</h2>
+                <div class="text-gray-300 space-y-3">
+                    <p><strong>移動:</strong> W, A, S, D キー</p>
+                    <p><strong>旋回:</strong> マウス移動 または 仮想ジョイスティック</p>
+                    <p><strong>攻撃:</strong> Z キー</p>
+                    <p><strong>アイテム使用:</strong> X, C キー</p>
+                    <p class="text-sm text-yellow-400">※ モバイル端末では、画面左下のジョイスティックで移動、画面右側をスワイプで視点変更します。</p>
                 </div>
-                <button id="close-modal-button" class="mt-8 bg-teal-600 hover:bg-teal-700 text-white font-bold py-2 px-4 rounded-xl transition duration-200">閉じる</button>
+                <button id="close-modal-button" class="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3 rounded-xl transition duration-200">
+                    閉じる
+                </button>
             </div>
         </div>
 
     </div>
 
     <script>
-        // ======================================================================================
-        // Core Game Constants (コアゲーム定数)
-        // ======================================================================================
-        const MAP_SIZE = 15; // マップの一辺のサイズ (15x15)
-        const CELL_SIZE = 5; // 3D空間での1マスあたりのサイズ
-        const MOVEMENT_SPEED = 3.0; // 通常時の移動速度 (単位/秒)
-        const ROTATION_SPEED = 1.0; // 旋回速度 (ラジアン/秒)
-        const ST_RECOVERY_RATE = 1.0; // ST回復速度 (ST/秒)
-        const ENEMY_MOVEMENT_SPEED = 1.5; // 敵の移動速度
+        // --- グローバル定数 ---
+        const CELL_SIZE = 10;
+        const MOVEMENT_SPEED = 0.5; // 1ティックあたりの移動量
+        const ROTATION_SPEED = 0.05; // 旋回速度
+        const MAP_WIDTH = 10;
+        const MAP_HEIGHT = 10;
+        const GAME_TICK_RATE = 1000; // 1秒間に1000ms
+        const LOG_MAX_LINES = 5;
+        const PLAYER_HEIGHT = 5;
 
-        // プレイヤー/敵の戦闘定数
-        const PLAYER_ATTACK_RANGE = 2.0; // プレイヤーの攻撃範囲 (Z軸方向の長さ)
-        const PLAYER_ATTACK_COOLDOWN = 1.0; // 攻撃クールダウン (秒)
-        const ENEMY_ATTACK_RANGE = 2.0; // 敵の攻撃範囲 (プレイヤーへの距離)
-        const ENEMY_ATTACK_COOLDOWN = 1.5; // 敵の攻撃クールダウン (秒)
-        const PLAYER_ATTACK_ST_COST = 5; // 攻撃のSTコスト (プレイヤーは基本攻撃不可だが、コストは定義)
+        // --- THREE.js変数 ---
+        let scene, camera, renderer, clock;
+        let ambientLight, pointLight;
+        let lastFrameTime = 0;
+        let lastTickTime = 0;
+        let animationFrameId = null; // requestAnimationFrame ID
 
-        // ダッシュ機能
-        const DASH_SPEED_MULTIPLIER = 1.5; // ダッシュ時の移動速度倍率
-        const DASH_HATE_INCREASE_PER_TICK = 5; // ダッシュによるヘイト増加量 (TICKごと)
-        const JOYSTICK_DASH_THRESHOLD = 0.8; // ジョイスティックがこの割合を超えて倒されるとダッシュ
-
-        // キーボードショートカット
-        const KEY_USE_ITEM = '1';  // アイテム使用
-        const KEY_ATTACK = '2';    // 攻撃 (基本は使用不可)
-        const KEY_SEARCH = '3';    // 探索
-        const KEY_WAIT = '4';      // 待機
-        const KEY_DASH = 'Shift';  // ダッシュキー
-
-        // ======================================================================================
-        // Global Variables (グローバル変数)
-        // ======================================================================================
-        let renderer, scene, camera; // Three.js のコアオブジェクト
-        let minimapCanvas, minimapCtx; // ミニマップ用のキャンバスとコンテキスト
-        let playerAttackMesh; // プレイヤーの攻撃範囲を示すメッシュ
-        
-        let gameState = 'title'; // 'title', 'playing', 'paused', 'gameover'
-        let currentFloor = 1; // 現在の階層
+        // --- ゲーム状態変数 ---
+        let gameState = 'title'; // 'title', 'game', 'pause', 'gameover'
         let currentMode = 'story'; // 'story', 'plunder', 'endless'
-        let isMobile = window.innerWidth <= 640 && window.innerHeight > window.innerWidth; // モバイル縦長画面判定
-
-        // プレイヤーの状態
+        let currentFloor = 1;
+        
+        // --- プレイヤー/マップ変数 ---
+        let keys = {}; // 押されているキー
         let player = {
+            mesh: null, // Three.jsのカメラ
             hp: 100,
             maxHp: 100,
             st: 100,
             maxSt: 100,
-            direction: new THREE.Vector3(), // プレイヤーの向きベクトル
+            mov: 10,
+            x: 1.5 * CELL_SIZE, // 初期位置 (x, z)
+            z: 1.5 * CELL_SIZE,
+            rotation: 0, // ラジアン
+            isMoving: false,
         };
 
-        // 入力状態 (キーボード)
-        let keyStates = {
-            'w': false, 'a': false, 's': false, 'd': false,
-            'W': false, 'A': false, 'S': false, 'D': false,
-            'ArrowUp': false, 'ArrowDown': false, 'ArrowLeft': false, 'ArrowRight': false,
-            [KEY_USE_ITEM]: false, [KEY_ATTACK]: false, [KEY_SEARCH]: false, [KEY_WAIT]: false,
-            [KEY_DASH]: false,
-        };
-        let isDashing = false; // ダッシュ状態フラグ
-        let playerAttackCooldown = 0; // プレイヤーの攻撃クールダウンタイマー
-        let enemyAttackCooldowns = new Map(); // 敵ごとの攻撃クールダウン (Mesh UUID -> time)
-
-        // ジョイスティックの状態
-        let isJoystickActive = false;
-        let joystickCenter = { x: 0, y: 0 };
-        let joystickStick = null;
-        let isMobileMoving = false; // モバイルでの移動中フラグ
-        let mobileMoveDirection = new THREE.Vector2(); // モバイルでの移動方向
-
-        // ゲーム時間管理
-        let lastFrameTime = 0;
-        let lastTickTime = 0; // ST回復などのTICK間隔計測用
-
-        // ダンジョンデータ
-        let DUNGEON_MAP = [];
-        let sceneObjects = []; // 壁や敵などの3Dオブジェクトの配列
-
-        // 敵データ (簡易実装)
-        let enemies = [
-            { id: 1, name: 'Mob1', hp: 30, maxHp: 30, mesh: null, hate: 0, aiState: 'patrol' },
-            { id: 2, name: 'Mob2', hp: 30, maxHp: 30, mesh: null, hate: 0, aiState: 'patrol' },
-            { id: 3, name: 'Tracker', hp: 100, maxHp: 100, mesh: null, hate: 0, aiState: 'patrol' }, // 追跡者
+        // ダミーのダンジョンマップ (1:壁, 2:床, 3:敵, 4:スタート, 5:階段)
+        let DUNGEON_MAP = [
+            [1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+            [1, 4, 2, 2, 2, 2, 2, 3, 2, 1],
+            [1, 2, 1, 1, 1, 1, 1, 2, 2, 1],
+            [1, 2, 1, 2, 2, 2, 1, 2, 1, 1],
+            [1, 2, 2, 2, 1, 2, 2, 2, 2, 1],
+            [1, 1, 1, 2, 1, 1, 1, 1, 2, 1],
+            [1, 2, 2, 2, 2, 2, 2, 1, 2, 1],
+            [1, 2, 1, 1, 1, 1, 2, 1, 2, 1],
+            [1, 2, 2, 2, 2, 2, 2, 5, 2, 1],
+            [1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
         ];
 
-        // Firebase 関連
+        let wallMeshGroup; // 全ての壁メッシュを格納するグループ
+
+        // ダミーの敵データ
+        let enemies = [
+            { id: 1, hp: 20, maxHp: 20, mesh: null, x: 7.5 * CELL_SIZE, z: 1.5 * CELL_SIZE, isDead: false },
+        ];
+
+
+        // --- Firebase/Firestore変数 ---
         let app, db, auth, userId;
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-
-
-        // ======================================================================================
-        // Firebase & Save/Load (データ永続化)
-        // ======================================================================================
-
-        // Firebase初期化とカスタム認証
-        async function initFirebase() {
-            try {
-                // Firebase Configの取得と初期化
-                const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
-                app = window.initializeApp(firebaseConfig);
-                db = window.getFirestore(app);
-                auth = window.getAuth(app);
-
-                // 認証
-                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                    await window.signInWithCustomToken(auth, __initial_auth_token);
-                } else {
-                    await window.signInAnonymously(auth);
-                }
-
-                userId = auth.currentUser?.uid || crypto.randomUUID();
-                console.log("Firebase initialized. User ID:", userId);
-
-            } catch (error) {
-                console.error("Firebase initialization failed:", error);
-            }
-        }
-
-        // ゲームデータをFirestoreに保存する関数
-        async function saveGameData() {
-            if (!db || !userId) return;
-
-            const saveData = {
-                hp: player.hp,
-                st: player.st,
-                floor: currentFloor,
-                position: { x: camera.position.x, y: camera.position.y, z: camera.position.z },
-                rotation: { x: camera.rotation.x, y: camera.rotation.y, z: camera.rotation.z },
-                mapData: JSON.stringify(DUNGEON_MAP), // マップデータを文字列化して保存
-                timestamp: new Date().toISOString(),
-                currentMode: currentMode,
-            };
-
-            const docRef = window.doc(db, 'artifacts', appId, 'users', userId, 'saved_games', 'latest');
-            try {
-                await window.setDoc(docRef, saveData);
-                logMessage('ゲームデータを保存しました。', 'system');
-                // 「続きから」ボタンを有効にする
-                document.getElementById('menu-continue').disabled = false;
-            } catch (e) {
-                console.error('ゲームデータの保存中にエラーが発生しました: ', e);
-                logMessage('ゲームデータの保存に失敗しました。', 'error');
-            }
-        }
-
-        // ゲームデータをFirestoreから読み込む関数
-        async function loadGameData() {
-            if (!db || !userId) return null;
-
-            const docRef = window.doc(db, 'artifacts', appId, 'users', userId, 'saved_games', 'latest');
-            try {
-                const docSnap = await window.getDoc(docRef);
-                if (docSnap.exists()) {
-                    const data = docSnap.data();
-                    logMessage('ゲームデータを読み込みました。', 'system');
-                    return data;
-                } else {
-                    logMessage('保存されたゲームデータが見つかりません。', 'warning');
-                    return null;
-                }
-            } catch (e) {
-                console.error('ゲームデータの読み込み中にエラーが発生しました: ', e);
-                logMessage('ゲームデータの読み込みに失敗しました。', 'error');
-                return null;
-            }
-        }
-
-        // 「続きから」ボタンの有効/無効をチェック
-        async function checkContinueAvailability() {
-            if (!db || !userId) return;
-
-            const docRef = window.doc(db, 'artifacts', appId, 'users', userId, 'saved_games', 'latest');
-            try {
-                const docSnap = await window.getDoc(docRef);
-                document.getElementById('menu-continue').disabled = !docSnap.exists();
-            } catch (e) {
-                console.error('「続きから」チェック中にエラーが発生しました: ', e);
-                document.getElementById('menu-continue').disabled = true;
-            }
-        }
-
-        // ======================================================================================
-        // Three.js Initialization (Three.js 初期化)
-        // ======================================================================================
-
-        function initThree() {
-            // レンダラーの初期化
-            renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('main-canvas'), antialias: true });
-            renderer.setSize(window.innerWidth, window.innerHeight);
-            renderer.setClearColor(0x000000);
-
-            // シーンの初期化
-            scene = new THREE.Scene();
-            scene.background = new THREE.Color(0x1a1a1a); // 背景色
-
-            // カメラの初期化 (FPS視点)
-            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-            camera.position.set(2.5, 1.7, 2.5); // プレイヤーの初期位置と高さ
-            camera.rotation.order = 'YXZ'; // 回転順序を設定 (FPSで一般的)
-            player.direction.set(0, 0, 1).applyQuaternion(camera.quaternion); // プレイヤーの初期向き
-
-            // 光源の追加
-            const ambientLight = new THREE.AmbientLight(0xffffff, 0.5); // 環境光
-            scene.add(ambientLight);
-            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.5); // 平行光
-            directionalLight.position.set(5, 10, 7);
-            scene.add(directionalLight);
-
-            // ミニマップキャンバスの初期化
-            minimapCanvas = document.getElementById('minimap-canvas');
-            minimapCtx = minimapCanvas.getContext('2d');
-            minimapCanvas.width = 200;
-            minimapCanvas.height = 200;
-
-            // プレイヤーの攻撃メッシュの初期化
-            const attackGeometry = new THREE.BoxGeometry(0.5, 0.5, PLAYER_ATTACK_RANGE);
-            const attackMaterial = new THREE.MeshBasicMaterial({ color: 0xff0000, transparent: true, opacity: 0.3, depthTest: false });
-            playerAttackMesh = new THREE.Mesh(attackGeometry, attackMaterial);
-            scene.add(playerAttackMesh);
-            playerAttackMesh.visible = false; // 通常は非表示
-            
-            // ウィンドウサイズ変更時の処理
-            window.addEventListener('resize', onWindowResize, false);
-        }
-
-        function onWindowResize() {
-            const width = window.innerWidth;
-            const height = window.innerHeight;
-            camera.aspect = width / height;
-            camera.updateProjectionMatrix();
-            renderer.setSize(width, height);
-            
-            // モバイル判定の更新
-            isMobile = width <= 640 && height > width;
-        }
-
-
-        // ======================================================================================
-        // Dungeon & Geometry (ダンジョン生成と3Dジオメトリ)
-        // ======================================================================================
-
-        // 簡易的なダンジョンマップの生成 (0: 通路/床, 1: 壁, 2: スタート, 3: 敵, 4: 階段)
-        function generateDungeonMap() {
-             // 既存のマップ生成ロジックがあればそれを流用する (ここでは固定マップで代替)
-             DUNGEON_MAP = [
-                [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-                [1, 2, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 4, 1], // 2:スタート, 4:階段
-                [1, 0, 1, 0, 1, 0, 1, 1, 1, 1, 1, 1, 1, 0, 1],
-                [1, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1],
-                [1, 0, 1, 1, 1, 1, 1, 0, 1, 0, 1, 0, 1, 0, 1],
-                [1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1], // 敵を配置する場所
-                [1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 0, 1],
-                [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1], // 敵を配置する場所 (Trackerの位置)
-                [1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1],
-                [1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-                [1, 0, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1],
-                [1, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1],
-                [1, 0, 1, 0, 1, 0, 1, 1, 1, 1, 1, 0, 1, 0, 1],
-                [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-                [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
-            ];
-            
-            // 敵の初期位置を設定 (簡易的に座標を指定)
-            enemies[0].initPos = { z: 5, x: 2 }; 
-            enemies[1].initPos = { z: 3, x: 9 };
-            enemies[2].initPos = { z: 7, x: 7 }; // Tracker
-        }
-
-        // 3Dジオメトリの生成
-        function generateDungeonGeometry() {
-            // 既存のオブジェクトをシーンから削除
-            sceneObjects.forEach(obj => scene.remove(obj));
-            sceneObjects = [];
-
-            // マテリアル定義
-            const wallMaterial = new THREE.MeshPhongMaterial({ color: 0x888888 }); // 壁
-            const floorMaterial = new THREE.MeshPhongMaterial({ color: 0x444444 }); // 床
-
-            // ジオメトリ定義
-            const wallGeometry = new THREE.BoxGeometry(CELL_SIZE, CELL_SIZE, CELL_SIZE);
-            const floorGeometry = new THREE.PlaneGeometry(MAP_SIZE * CELL_SIZE, MAP_SIZE * CELL_SIZE);
-            floorGeometry.rotateX(-Math.PI / 2); // 床を水平に
-
-            // 床の生成 (単一の大きなメッシュ)
-            const floorMesh = new THREE.Mesh(floorGeometry, floorMaterial);
-            floorMesh.position.set(MAP_SIZE * CELL_SIZE / 2 - CELL_SIZE / 2, 0, MAP_SIZE * CELL_SIZE / 2 - CELL_SIZE / 2);
-            scene.add(floorMesh);
-            sceneObjects.push(floorMesh);
-
-            // 壁の生成
-            for (let z = 0; z < MAP_SIZE; z++) {
-                for (let x = 0; x < MAP_SIZE; x++) {
-                    if (DUNGEON_MAP[z][x] === 1) {
-                        const wallMesh = new THREE.Mesh(wallGeometry, wallMaterial);
-                        wallMesh.position.set(x * CELL_SIZE, CELL_SIZE / 2, z * CELL_SIZE);
-                        scene.add(wallMesh);
-                        sceneObjects.push(wallMesh);
-                    }
-                }
-            }
-            
-            // 敵のメッシュ生成と初期位置設定
-            enemies.forEach(enemy => {
-                const isTracker = enemy.name === 'Tracker';
-                const enemyColor = isTracker ? 0xcc0000 : 0x00cc00; // 追跡者は赤、他は緑
-                const enemyGeometry = new THREE.BoxGeometry(CELL_SIZE * 0.8, CELL_SIZE * 0.8, CELL_SIZE * 0.8);
-                const enemyMaterial = new THREE.MeshPhongMaterial({ color: enemyColor });
-                enemy.mesh = new THREE.Mesh(enemyGeometry, enemyMaterial);
-                
-                // 初期位置設定
-                enemy.mesh.position.set(enemy.initPos.x * CELL_SIZE, CELL_SIZE * 0.4, enemy.initPos.z * CELL_SIZE);
-                scene.add(enemy.mesh);
-                enemy.mesh.visible = true;
-                enemy.hp = enemy.maxHp;
-            });
-            
-            // プレイヤーの初期位置設定
-            for (let z = 0; z < MAP_SIZE; z++) {
-                for (let x = 0; x < MAP_SIZE; x++) {
-                    if (DUNGEON_MAP[z][x] === 2) {
-                        camera.position.set(x * CELL_SIZE, 1.7, z * CELL_SIZE);
-                        break;
-                    }
-                }
-            }
-        }
-
-        // 衝突判定 (指定された座標が壁かどうか)
-        function isWall(x, z) {
-            const gridX = Math.round(x / CELL_SIZE);
-            const gridZ = Math.round(z / CELL_SIZE);
-
-            if (gridX < 0 || gridX >= MAP_SIZE || gridZ < 0 || gridZ >= MAP_SIZE) {
-                return true; // マップ外は壁
-            }
-            return DUNGEON_MAP[gridZ][gridX] === 1;
-        }
-
-
-        // ======================================================================================
-        // Game Logic (ゲームロジック)
-        // ======================================================================================
-
-        // ゲーム状態の更新 (メインゲームループからフレームごとに呼ばれる)
-        function updateGame(deltaTime) {
-            if (gameState !== 'playing') return;
-
-            // --- プレイヤーの移動と衝突判定 ---
-            
-            // プレイヤーの移動速度計算
-            let currentMovementSpeed = MOVEMENT_SPEED * (deltaTime / 1000);
-
-            // ダッシュ状態の判定と速度調整
-            isDashing = keyStates[KEY_DASH] || (isMobileMoving && mobileMoveDirection.length() > JOYSTICK_DASH_THRESHOLD);
-
-            if (isDashing) {
-                currentMovementSpeed *= DASH_SPEED_MULTIPLIER;
-                // ダッシュによるヘイト増加
-                increaseHate(DASH_HATE_INCREASE_PER_TICK * (deltaTime / 1000)); 
-            }
-
-            const currentDirection = new THREE.Vector3();
-            camera.getWorldDirection(currentDirection); // 現在のカメラの向きベクトルを取得
-
-            let moveVector = new THREE.Vector3(0, 0, 0);
-
-            // 前後移動
-            if (keyStates['w'] || keyStates['W'] || keyStates['ArrowUp'] || (isMobileMoving && Math.abs(mobileMoveDirection.y) > 0.1 && mobileMoveDirection.y > 0)) {
-                moveVector.add(currentDirection.clone().multiplyScalar(currentMovementSpeed));
-            }
-            if (keyStates['s'] || keyStates['S'] || keyStates['ArrowDown'] || (isMobileMoving && Math.abs(mobileMoveDirection.y) > 0.1 && mobileMoveDirection.y < 0)) {
-                moveVector.sub(currentDirection.clone().multiplyScalar(currentMovementSpeed));
-            }
-            // 左右移動 (ストレイフ)
-            const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
-            if (keyStates['a'] || keyStates['A'] || (isMobileMoving && Math.abs(mobileMoveDirection.x) > 0.1 && mobileMoveDirection.x < 0)) {
-                moveVector.sub(right.multiplyScalar(currentMovementSpeed));
-            }
-            if (keyStates['d'] || keyStates['D'] || (isMobileMoving && Math.abs(mobileMoveDirection.x) > 0.1 && mobileMoveDirection.x > 0)) {
-                moveVector.add(right.multiplyScalar(currentMovementSpeed));
-            }
-
-            // XZ平面での移動に制限
-            moveVector.y = 0;
-
-            const newX = camera.position.x + moveVector.x;
-            const newZ = camera.position.z + moveVector.z;
-
-            // X軸方向の衝突判定
-            if (!isWall(newX, camera.position.z)) {
-                camera.position.x = newX;
-            }
-            // Z軸方向の衝突判定
-            if (!isWall(camera.position.x, newZ)) {
-                camera.position.z = newZ;
-            }
-
-            // --- 視点移動 (キーボード - 矢印キー) ---
-            // マウスロック中はマウス優先だが、ここでは矢印キーでの回転も許可
-            const rotationAmount = ROTATION_SPEED * (deltaTime / 1000); // 旋回速度
-            if (keyStates['ArrowLeft']) {
-                camera.rotation.y += rotationAmount;
-            }
-            if (keyStates['ArrowRight']) {
-                camera.rotation.y -= rotationAmount;
-            }
-
-            // --- ST回復 ---
-            const timeSinceLastTick = performance.now() - lastTickTime;
-            if (timeSinceLastTick >= 1000) { // 1秒ごとにSTを回復
-                player.st = Math.min(player.maxSt, player.st + ST_RECOVERY_RATE);
-                lastTickTime = performance.now();
-            }
-
-            // --- プレイヤーの攻撃クールダウン更新 ---
-            if (playerAttackCooldown > 0) {
-                playerAttackCooldown -= deltaTime / 1000;
-                if (playerAttackCooldown <= 0) {
-                    playerAttackCooldown = 0;
-                    playerAttackMesh.visible = false; // 攻撃モーション終了
-                    logMessage('攻撃クールダウン終了。', 'system');
-                } else {
-                    // 攻撃メッシュの位置をカメラと同期 (簡易的な攻撃アニメーション)
-                    const playerDirection = new THREE.Vector3();
-                    camera.getWorldDirection(playerDirection);
-                    // 攻撃メッシュをカメラの正面少し手前に配置
-                    playerAttackMesh.position.copy(camera.position).add(playerDirection.multiplyScalar(PLAYER_ATTACK_RANGE / 2 + 0.5));
-                    playerAttackMesh.rotation.copy(camera.rotation);
-                    // 攻撃判定
-                    checkAttackCollision(playerAttackMesh, 'player');
-                }
-            }
-
-            // --- 敵の更新とAI ---
-            enemies.forEach(enemy => {
-                enemyUpdateLogic(enemy, deltaTime);
-            });
-
-            // --- UIの更新と描画 ---
-            updateStatusDisplay();
-            renderMinimap();
-
-            // ゲームオーバー判定
-            if (player.hp <= 0) {
-                setGameState('gameover');
-            }
-        }
-
-
-        // ======================================================================================
-        // Combat & Enemy AI (戦闘と敵AI)
-        // ======================================================================================
-
-        // プレイヤーの攻撃実行関数
-        function playerPerformAttack() {
-            // プレイヤーは基本攻撃不可だが、アクションは定義する
-            if (playerAttackCooldown > 0) {
-                logMessage('攻撃クールダウン中です。', 'warning');
-                return;
-            }
-            if (player.st < PLAYER_ATTACK_ST_COST) {
-                logMessage('STが不足しています。攻撃できません。', 'warning');
-                return;
-            }
-            
-            // 攻撃 ST消費
-            player.st = Math.max(0, player.st - PLAYER_ATTACK_ST_COST);
-            updateStatusDisplay();
-
-            // 攻撃モーション開始（メッシュを視界に移動させて表示）
-            playerAttackMesh.visible = true;
-            playerAttackCooldown = PLAYER_ATTACK_COOLDOWN;
-            
-            logMessage('プレイヤーが攻撃モーションを開始しました。', 'action');
-        }
-
-        // 敵の攻撃実行関数
-        function enemyPerformAttack(enemy) {
-            const enemyUuid = enemy.mesh.uuid;
-            if ((enemyAttackCooldowns.get(enemyUuid) || 0) > 0) return; // クールダウン中
-            
-            // 攻撃クールダウン設定
-            enemyAttackCooldowns.set(enemyUuid, ENEMY_ATTACK_COOLDOWN);
-            
-            // 攻撃モーション表示用の簡易メッシュ (ここでは敵メッシュの色を変えるなどで代用)
-            const originalColor = enemy.mesh.material.color.clone();
-            const attackColor = enemy.name === 'Tracker' ? 0xff4500 : 0xffa500; // 追跡者はより危険な色
-            enemy.mesh.material.color.set(attackColor); // 攻撃時に色変更
-            setTimeout(() => {
-                // 敵メッシュを元の色に戻す (時間が経つとクールダウン終了とは限らないが、簡易的に)
-                enemy.mesh.material.color.copy(originalColor); 
-            }, 200);
-
-            logMessage(`${enemy.name}が攻撃モーションを開始しました。`, 'danger');
-
-            // 攻撃判定 (敵とプレイヤーの距離が攻撃範囲内か)
-            const distanceToPlayer = enemy.mesh.position.distanceTo(camera.position);
-            if (distanceToPlayer < ENEMY_ATTACK_RANGE) {
-                // 追跡者による即死攻撃判定
-                if (enemy.name === 'Tracker') {
-                    handleInstantDeath(enemy);
-                } else {
-                    // 通常敵の攻撃
-                    handleEnemyDamage(enemy, 10); // ダメージ10とする
-                }
-            }
-        }
-
-        // 追跡者による即死攻撃処理
-        function handleInstantDeath(tracker) {
-            logMessage('追跡者の即死攻撃を受けました！', 'fatal');
-            player.hp = 0; // 即死判定
-            updateStatusDisplay();
-        }
-
-        // 敵からダメージを受けた際の処理
-        function handleEnemyDamage(enemy, damage) {
-            player.hp -= damage;
-            logMessage(`${enemy.name}から${damage}のダメージを受けました。残りHP: ${player.hp}`, 'danger');
-            updateStatusDisplay();
-        }
-
-        // 攻撃メッシュと敵の衝突判定 (現在はプレイヤー攻撃のみ想定)
-        function checkAttackCollision(attackMesh, attackerType) {
-            if (attackerType !== 'player') return;
-
-            const attackBox = new THREE.Box3().setFromObject(attackMesh);
-
-            enemies.forEach(enemy => {
-                // 敵が生存しており、かつ攻撃判定内にあるか
-                if (enemy.hp > 0 && enemy.mesh.visible) {
-                    const enemyBox = new THREE.Box3().setFromObject(enemy.mesh);
-                    if (attackBox.intersectsBox(enemyBox)) {
-                        logMessage(`[テスト] ${enemy.name}に命中！しかし、ダメージを与えられない...(要アイテム)`, 'action');
-                        // プレイヤーはアイテム/アクションなしではダメージを与えられないという仕様
-                    }
-                }
-            });
-        }
-        
-        // 敵の移動・行動更新ロジック (簡易AI)
-        function enemyUpdateLogic(enemy, deltaTime) {
-            const enemyUuid = enemy.mesh.uuid;
-            const timeDelta = deltaTime / 1000;
-
-            // クールダウンタイマーの更新
-            if ((enemyAttackCooldowns.get(enemyUuid) || 0) > 0) {
-                enemyAttackCooldowns.set(enemyUuid, enemyAttackCooldowns.get(enemyUuid) - timeDelta);
-            }
-            
-            // 追跡者のヘイト減少 (1秒ごとに1減少)
-            if (enemy.name === 'Tracker') {
-                enemy.hate = Math.max(0, enemy.hate - timeDelta);
-            }
-
-            // プレイヤーへの距離をチェック
-            const distanceToPlayer = enemy.mesh.position.distanceTo(camera.position);
-            
-            // 攻撃範囲内なら攻撃
-            if (distanceToPlayer < ENEMY_ATTACK_RANGE) {
-                enemyPerformAttack(enemy);
-            } 
-            // 攻撃範囲外なら追跡移動
-            else {
-                // 敵をプレイヤーの方向へ移動させる (簡易追跡)
-                const directionToPlayer = new THREE.Vector3().subVectors(camera.position, enemy.mesh.position).normalize();
-                
-                let moveAmount = ENEMY_MOVEMENT_SPEED * timeDelta;
-                if (enemy.name === 'Tracker' && enemy.hate > 50) {
-                     moveAmount *= 1.2; // ヘイトが高いと追跡速度アップ (簡易的な猛追)
-                }
-                
-                const newPos = enemy.mesh.position.clone().add(directionToPlayer.multiplyScalar(moveAmount));
-
-                // 衝突判定 (簡易的)
-                if (!isWall(newPos.x, newPos.z)) {
-                    enemy.mesh.position.copy(newPos);
-                }
-            }
-        }
-        
-        // ヘイト増加関数 (ダッシュやアイテム使用などで呼び出す)
-        function increaseHate(amount) {
-            const tracker = enemies.find(e => e.name === 'Tracker');
-            if (tracker) {
-                tracker.hate = Math.min(100, tracker.hate + amount);
-                // logMessage(`ヘイト増加: +${amount.toFixed(1)}。現在のヘイト: ${tracker.hate.toFixed(1)}`, 'system');
-            }
-        }
-
-
-        // ======================================================================================
-        // Game Loop (ゲームループ)
-        // ======================================================================================
-
-        function animate(currentTime) {
-            if (gameState !== 'playing' && gameState !== 'gameover') return;
-
-            const deltaTime = currentTime - lastFrameTime;
-            lastFrameTime = currentTime;
-
-            if (gameState === 'playing') {
-                updateGame(deltaTime);
-            }
-
-            // 描画
-            renderer.render(scene, camera);
-
-            // 次のフレームを要求
-            requestAnimationFrame(animate);
-        }
-
-
-        // ======================================================================================
-        // Input Handling & Shortcuts (入力処理とショートカット)
-        // ======================================================================================
-
-        // キーボード入力ダウン
-        function handleKeyDown(event) {
-            if (gameState !== 'playing') return;
-
-            // 既存の移動/操作キー
-            keyStates[event.key.toLowerCase()] = true; 
-            
-            // ショートカットキーの処理
-            if (event.key === KEY_USE_ITEM && !keyStates[KEY_USE_ITEM]) {
-                performAction('item');
-                keyStates[KEY_USE_ITEM] = true; // 連続入力を防ぐ
-            } else if (event.key === KEY_ATTACK && !keyStates[KEY_ATTACK]) {
-                playerPerformAttack();
-                keyStates[KEY_ATTACK] = true;
-            } else if (event.key === KEY_SEARCH && !keyStates[KEY_SEARCH]) {
-                performAction('search');
-                keyStates[KEY_SEARCH] = true;
-            } else if (event.key === KEY_WAIT && !keyStates[KEY_WAIT]) {
-                performAction('wait');
-                keyStates[KEY_WAIT] = true;
-            }
-        }
-
-        // キーボード入力アップ
-        function handleKeyUp(event) {
-            keyStates[event.key.toLowerCase()] = false;
-        }
-        
-        // マウス/ポインターロックの切り替え
-        document.addEventListener('pointerlockchange', () => {
-            if (document.pointerLockElement === document.getElementById('main-canvas')) {
-                logMessage('マウスカーソルがロックされました。視点移動が可能です。', 'info');
-                document.addEventListener('mousemove', handleMouseMove, false);
-            } else {
-                logMessage('マウスカーソルが解放されました。', 'info');
-                document.removeEventListener('mousemove', handleMouseMove, false);
-            }
-        }, false);
-
-        // マウス移動による視点移動 (ポインターロック時)
-        function handleMouseMove(event) {
-            if (gameState !== 'playing') return;
-
-            const sensitivity = 0.002; // 視点移動感度
-
-            // Y軸回転 (左右)
-            camera.rotation.y -= event.movementX * sensitivity;
-
-            // X軸回転 (上下)
-            camera.rotation.x -= event.movementY * sensitivity;
-
-            // X軸の回転制限 (上下見過ぎを防ぐ)
-            camera.rotation.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, camera.rotation.x));
-        }
-
-        // ショートカットアクションの実装
-        function performAction(actionType) {
-            switch (actionType) {
-                case 'item':
-                    logMessage('アイテム使用 (未実装: インベントリの先頭アイテムを使用)', 'action');
-                    // 例: アイテム使用によるヘイト増加
-                    increaseHate(10); 
-                    break;
-                case 'search':
-                    // 探索にSTを消費する
-                    player.st = Math.max(0, player.st - 5);
-                    logMessage('探索アクション: 周囲を調べました。', 'action');
-                    break;
-                case 'wait':
-                    logMessage('待機アクション: 僅かに時間を進めました。', 'action');
-                    // 待機によるST回復速度向上やヘイト減少など (ここでは簡易的にST回復のみ)
-                    player.st = Math.min(player.maxSt, player.st + 5);
-                    increaseHate(-5); // 待機によるヘイト減少
-                    break;
-            }
-            updateStatusDisplay();
-        }
-
-        // ======================================================================================
-        // Mobile Input (モバイル入力 - ジョイスティック/スワイプ)
-        // ======================================================================================
-        
-        // タッチ開始
-        document.getElementById('game-container').addEventListener('touchstart', (e) => {
-            if (!isMobile || gameState !== 'playing') return;
-
-            // ジョイスティックエリア判定
-            const joystickBase = document.getElementById('joystick-base');
-            const rect = joystickBase.getBoundingClientRect();
-            
-            const touch = e.touches[0];
-
-            if (touch.clientX >= rect.left && touch.clientX <= rect.right &&
-                touch.clientY >= rect.top && touch.clientY <= rect.bottom) {
-                // ジョイスティック操作開始
-                isJoystickActive = true;
-                joystickCenter = { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
-                joystickStick = document.getElementById('joystick-stick');
-                joystickStick.style.transition = 'none';
-                e.preventDefault();
-            } else if (touch.clientX > window.innerWidth / 2) {
-                // 画面右側でのスワイプ (視点移動)
-                touchStartX = touch.clientX;
-                touchStartY = touch.clientY;
-                isSwiping = true;
-                e.preventDefault();
-            }
-        }, { passive: false });
-
-        // タッチ移動 (視点移動/ジョイスティック)
-        document.getElementById('game-container').addEventListener('touchmove', (e) => {
-            if (gameState !== 'playing') return;
-            const touch = e.touches[0];
-
-            if (isJoystickActive) {
-                // ジョイスティック処理 (移動)
-                const dx = touch.clientX - joystickCenter.x;
-                const dy = touch.clientY - joystickCenter.y;
-                const radius = rect.width / 2;
-                
-                let angle = Math.atan2(dy, dx);
-                let distance = Math.min(Math.sqrt(dx * dx + dy * dy), radius);
-                
-                const finalX = distance * Math.cos(angle);
-                const finalY = distance * Math.sin(angle);
-
-                // スティックの位置更新
-                joystickStick.style.left = `${50 + (finalX / radius) * 50}%`;
-                joystickStick.style.top = `${50 + (finalY / radius) * 50}%`;
-                
-                // 移動方向ベクトル (正規化)
-                mobileMoveDirection.set(finalX / radius, -finalY / radius); // Y軸反転
-                isMobileMoving = mobileMoveDirection.length() > 0.1;
-
-                e.preventDefault();
-            } else if (isSwiping) {
-                // スワイプ処理 (視点移動)
-                const currentX = touch.clientX;
-                const currentY = touch.clientY;
-                
-                const deltaX = currentX - touchStartX;
-                const deltaY = currentY - touchStartY;
-                
-                const sensitivity = 0.003; 
-                
-                // Y軸回転 (左右)
-                camera.rotation.y -= deltaX * sensitivity;
-
-                // X軸回転 (上下)
-                camera.rotation.x -= deltaY * sensitivity;
-
-                // X軸の回転制限
-                camera.rotation.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, camera.rotation.x));
-
-                touchStartX = currentX;
-                touchStartY = currentY;
-                e.preventDefault();
-            }
-        }, { passive: false });
-
-        // タッチ終了
-        document.getElementById('game-container').addEventListener('touchend', (e) => {
-            // ジョイスティックのリセット
-            if (isJoystickActive) {
-                isJoystickActive = false;
-                isMobileMoving = false;
-                mobileMoveDirection.set(0, 0);
-
-                joystickStick.style.transition = 'transform 0.1s';
-                joystickStick.style.left = '50%';
-                joystickStick.style.top = '50%';
-            }
-            isSwiping = false;
-        });
-
-        // ======================================================================================
-        // UI & Screen Management (UIと画面管理)
-        // ======================================================================================
-
-        // ログメッセージの表示
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+        /**
+         * @brief メッセージログに新しいメッセージを追加し、表示を更新する。
+         * @param {string} message - 表示するメッセージ
+         * @param {string} type - 'info', 'warning', 'error', 'system' など
+         */
         function logMessage(message, type = 'system') {
             const logElement = document.getElementById('message-log');
-            const mobileLogElement = document.getElementById('mobile-message-log');
-            const now = new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-            
-            let colorClass = 'text-green-300';
-            if (type === 'warning') colorClass = 'text-yellow-400';
-            if (type === 'danger') colorClass = 'text-red-400';
-            if (type === 'fatal') colorClass = 'text-red-600 font-bold';
+            if (!logElement) return;
 
-            const entry = `<p class="truncate ${colorClass}">[${now}] ${message}</p>`;
+            const time = new Date().toLocaleTimeString();
+            const logLine = document.createElement('p');
+            logLine.className = `text-xs ${type === 'error' ? 'text-red-400' : type === 'warning' ? 'text-yellow-400' : 'text-gray-200'}`;
+            logLine.innerHTML = `[${time}] ${message}`;
 
-            // デスクトップ版に追加
-            logElement.innerHTML = entry + logElement.innerHTML;
-            if (logElement.children.length > 20) {
+            // 最新のメッセージを一番上に追加
+            logElement.prepend(logLine);
+
+            // 最大行数を超えたら古いものを削除
+            while (logElement.children.length > LOG_MAX_LINES) {
                 logElement.removeChild(logElement.lastChild);
             }
+        }
+
+        // --- Firebase初期化 ---
+        async function initFirebase() {
+            if (!firebaseConfig) {
+                logMessage("Firebase設定が見つかりません。データ永続化は無効です。", 'warning');
+                return;
+            }
             
-            // モバイル版に追加
-            mobileLogElement.innerHTML = entry + mobileLogElement.innerHTML;
-            if (mobileLogElement.children.length > 5) {
-                mobileLogElement.removeChild(mobileLogElement.lastChild);
+            try {
+                // グローバルに公開されたFirebaseモジュールを使用
+                const { initializeApp, getAuth, signInWithCustomToken, signInAnonymously, getFirestore, setLogLevel } = window;
+                
+                app = initializeApp(firebaseConfig);
+                auth = getAuth(app);
+                db = getFirestore(app);
+
+                // ログレベル設定 (デバッグ用)
+                setLogLevel('Debug');
+
+                if (initialAuthToken) {
+                    await signInWithCustomToken(auth, initialAuthToken);
+                } else {
+                    await signInAnonymously(auth);
+                }
+                
+                userId = auth.currentUser.uid;
+                logMessage(`Firebase認証成功。UserID: ${userId}`, 'info');
+
+            } catch (error) {
+                console.error("Firebase初期化エラー:", error);
+                logMessage(`Firebase初期化エラー: ${error.message.substring(0, 50)}...`, 'error');
             }
         }
 
-        // ステータス表示の更新
-        function updateStatusDisplay() {
-            document.getElementById('player-hp').textContent = player.hp;
-            document.getElementById('hp-bar').style.width = `${(player.hp / player.maxHp) * 100}%`;
-            document.getElementById('player-st').textContent = Math.floor(player.st);
-            document.getElementById('st-bar').style.width = `${(player.st / player.maxSt) * 100}%`;
-            document.getElementById('current-floor').textContent = currentFloor;
+        // --- Three.js初期化 ---
+        function initThree() {
+            const container = document.getElementById('game-container');
+            const canvas = document.getElementById('main-canvas');
+
+            // 1. シーンの作成
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x333333); // 暗いダンジョンの背景色
+
+            // 2. カメラの作成
+            camera = new THREE.PerspectiveCamera(75, container.clientWidth / container.clientHeight, 0.1, 1000);
             
-            let modeName = 'ストーリー';
-            if (currentMode === 'plunder') modeName = '盗掘';
-            if (currentMode === 'endless') modeName = 'エンドレス';
-            document.getElementById('current-mode-display').textContent = modeName;
+            // プレイヤーグループを作成し、カメラをその子にすることで移動と視点変更を分離
+            player.mesh = new THREE.Group();
+            player.mesh.add(camera);
+            scene.add(player.mesh);
+
+            // カメラの位置調整
+            camera.position.set(0, PLAYER_HEIGHT, 0); 
+            player.mesh.position.set(player.x, 0, player.z);
+
+            // 3. レンダラーの作成
+            renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true });
+            renderer.setSize(container.clientWidth, container.clientHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            
+            // 4. 光源の追加
+            ambientLight = new THREE.AmbientLight(0x404040, 3); // 全体的な環境光 (強め)
+            scene.add(ambientLight);
+
+            // プレイヤーの位置にポイントライトを設置
+            pointLight = new THREE.PointLight(0xffffff, 1.5, 50, 2); // 懐中電灯のような光
+            camera.add(pointLight); // カメラの子にすることで一緒に動く
+            
+            // 5. リサイズイベント
+            window.addEventListener('resize', onWindowResize, false);
+
+            logMessage("Three.js初期化完了。", 'system');
         }
-
-        // ミニマップの描画
-        function renderMinimap() {
-            if (gameState !== 'playing') return;
-
-            const mapCellSize = minimapCanvas.width / MAP_SIZE; // ミニマップ上の1マスあたりのピクセルサイズ
-            const minimapCtx = minimapCanvas.getContext('2d');
-            minimapCtx.clearRect(0, 0, minimapCanvas.width, minimapCanvas.height);
-            
-            // プレイヤー座標 (セル単位)
-            const playerZ = Math.floor(camera.position.z / CELL_SIZE + 0.5);
-            const playerX = Math.floor(camera.position.x / CELL_SIZE + 0.5);
-
-            // マップ描画 (壁は白、通路は黒)
-            for (let z = 0; z < MAP_SIZE; z++) {
-                for (let x = 0; x < MAP_SIZE; x++) {
-                    const cellValue = DUNGEON_MAP[z][x];
-                    let color = '#000000'; // 通路
-                    if (cellValue === 1) { // 壁
-                        color = '#ffffff'; 
-                    } else if (cellValue === 4) { // 階段
-                        color = '#00ffff'; 
-                    }
-                    minimapCtx.fillStyle = color;
-                    minimapCtx.fillRect(x * mapCellSize, z * mapCellSize, mapCellSize, mapCellSize);
-                }
-            }
-
-            // --- 敵の描画 ---
-            enemies.forEach(enemy => {
-                if (enemy.hp > 0 && enemy.mesh.visible) {
-                    const enemyZ = Math.floor(enemy.mesh.position.z / CELL_SIZE + 0.5);
-                    const enemyX = Math.floor(enemy.mesh.position.x / CELL_SIZE + 0.5);
-                    const enemyMapX = enemyX * mapCellSize + mapCellSize / 2;
-                    const enemyMapY = enemyZ * mapCellSize + mapCellSize / 2;
-
-                    minimapCtx.fillStyle = enemy.name === 'Tracker' ? '#cc0000' : '#ffff00'; // 追跡者は赤、他は黄色
-                    minimapCtx.beginPath();
-                    minimapCtx.arc(enemyMapX, enemyMapY, mapCellSize * 0.3, 0, Math.PI * 2);
-                    minimapCtx.fill();
-                }
-            });
-
-
-            // --- プレイヤーの描画 (ミニマップ上の現在地) ---
-            const playerMapX = playerX * mapCellSize + mapCellSize / 2;
-            const playerMapY = playerZ * mapCellSize + mapCellSize / 2;
-            
-            // プレイヤーを赤丸で表示し、向きを矢印で示す
-            minimapCtx.fillStyle = '#00ccff'; // プレイヤーはシアン
-            minimapCtx.beginPath();
-            minimapCtx.arc(playerMapX, playerMapY, mapCellSize * 0.4, 0, Math.PI * 2);
-            minimapCtx.fill();
-
-            // プレイヤーの向きを示す矢印
-            // カメラのY軸回転から方向を取得 (Three.jsの回転角は時計回り)
-            const rotationY = camera.rotation.y; 
-            minimapCtx.strokeStyle = 'black';
-            minimapCtx.lineWidth = 2;
-            minimapCtx.beginPath();
-            // プレイヤー位置から、カメラの向きに向かって線を描画
-            const arrowLength = mapCellSize * 0.5;
-            // X軸(マップのX)はsin, Z軸(マップのY)は-cos (Three.jsの座標系に合わせる)
-            const dx = arrowLength * Math.sin(rotationY);
-            const dy = -arrowLength * Math.cos(rotationY); 
-            
-            minimapCtx.moveTo(playerMapX, playerMapY);
-            minimapCtx.lineTo(playerMapX + dx, playerMapY + dy);
-            minimapCtx.stroke();
-        }
-
-        // ゲーム状態の切り替え
-        function setGameState(newState) {
-            gameState = newState;
-            document.getElementById('title-screen').classList.add('hidden');
-            document.getElementById('gameover-screen').classList.add('hidden');
-            
-            if (newState === 'title') {
-                document.getElementById('title-screen').classList.remove('hidden');
-            } else if (newState === 'gameover') {
-                document.getElementById('gameover-screen').classList.remove('hidden');
-            } else if (newState === 'playing') {
-                // マウスカーソルをロック
-                document.getElementById('main-canvas').requestPointerLock();
-                // 最後にゲームデータを保存
-                saveGameData();
+        
+        // --- リサイズ処理 ---
+        function onWindowResize() {
+            const container = document.getElementById('game-container');
+            if (camera && renderer && container) {
+                camera.aspect = container.clientWidth / container.clientHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(container.clientWidth, container.clientHeight);
             }
         }
         
-        // 新しいゲームを開始
-        function startGame(isNewGame = true) {
-            if (isNewGame) {
-                // 初期化処理
-                player.hp = player.maxHp = 100;
-                player.st = player.maxSt = 100;
-                currentFloor = 1;
-                generateDungeonMap(); // 新しいマップ生成
-                generateDungeonGeometry(); // 3Dジオメトリ生成
-                logMessage('新しいゲームを開始しました。', 'info');
-            }
+        /**
+         * @brief 衝突判定。新しい位置が壁ではないかチェック。
+         * @param {number} x - 試行するワールドX座標
+         * @param {number} z - 試行するワールドZ座標
+         * @returns {boolean} - 衝突 (壁) があれば true
+         */
+        function isColliding(x, z) {
+            // グリッド座標に変換
+            const mapX = Math.floor(x / CELL_SIZE);
+            const mapZ = Math.floor(z / CELL_SIZE);
             
-            updateStatusDisplay();
-            // 時間をリセットしてアニメーションを再開
-            lastFrameTime = performance.now();
-            lastTickTime = performance.now();
-            setGameState('playing');
-            animate(lastFrameTime);
+            // マップ範囲外チェック
+            if (mapX < 0 || mapX >= MAP_WIDTH || mapZ < 0 || mapZ >= MAP_HEIGHT) {
+                return true; // 衝突
+            }
+
+            // マップデータチェック (1:壁)
+            return DUNGEON_MAP[mapZ][mapX] === 1;
         }
 
-        // 続きからゲームを開始する関数
-        async function continueGame() {
-            const loadedData = await loadGameData();
-            if (loadedData) {
-                // ゲーム状態の復元
-                player.hp = loadedData.hp;
-                player.st = loadedData.st;
-                currentFloor = loadedData.floor;
-                currentMode = loadedData.currentMode;
+        /**
+         * @brief ダミーダンジョンの3Dジオメトリを生成
+         */
+        function generateDungeonGeometry() {
+            if (wallMeshGroup) {
+                scene.remove(wallMeshGroup);
+            }
+            wallMeshGroup = new THREE.Group();
+            
+            const wallGeometry = new THREE.BoxGeometry(CELL_SIZE, CELL_SIZE, 1); // 壁の基本形状 (厚さ1)
+            const wallMaterial = new THREE.MeshLambertMaterial({ color: 0x444444 });
+
+            const floorGeometry = new THREE.PlaneGeometry(MAP_WIDTH * CELL_SIZE, MAP_HEIGHT * CELL_SIZE);
+            const floorMaterial = new THREE.MeshLambertMaterial({ color: 0x222222 });
+            const floorMesh = new THREE.Mesh(floorGeometry, floorMaterial);
+            floorMesh.rotation.x = -Math.PI / 2; // XZ平面に配置
+            floorMesh.position.set((MAP_WIDTH * CELL_SIZE) / 2 - CELL_SIZE / 2, 0, (MAP_HEIGHT * CELL_SIZE) / 2 - CELL_SIZE / 2);
+            scene.add(floorMesh);
+            
+            // 壁とオブジェクトの配置
+            for (let z = 0; z < MAP_HEIGHT; z++) {
+                for (let x = 0; x < MAP_WIDTH; x++) {
+                    const type = DUNGEON_MAP[z][x];
+                    const posX = x * CELL_SIZE;
+                    const posZ = z * CELL_SIZE;
+
+                    if (type === 1) { // 壁
+                        // 4方向の壁を生成 (ダンジョンの見た目を考慮して)
+                        
+                        // X方向の壁 (東)
+                        const wallE = new THREE.Mesh(wallGeometry, wallMaterial);
+                        wallE.rotation.y = Math.PI / 2;
+                        wallE.position.set(posX + CELL_SIZE / 2, CELL_SIZE / 2, posZ);
+                        wallMeshGroup.add(wallE);
+
+                        // X方向の壁 (西)
+                        const wallW = new THREE.Mesh(wallGeometry, wallMaterial);
+                        wallW.rotation.y = Math.PI / 2;
+                        wallW.position.set(posX - CELL_SIZE / 2, CELL_SIZE / 2, posZ);
+                        wallMeshGroup.add(wallW);
+
+                        // Z方向の壁 (北)
+                        const wallN = new THREE.Mesh(wallGeometry, wallMaterial);
+                        wallN.position.set(posX, CELL_SIZE / 2, posZ - CELL_SIZE / 2);
+                        wallMeshGroup.add(wallN);
+
+                        // Z方向の壁 (南)
+                        const wallS = new THREE.Mesh(wallGeometry, wallMaterial);
+                        wallS.position.set(posX, CELL_SIZE / 2, posZ + CELL_SIZE / 2);
+                        wallMeshGroup.add(wallS);
+                        
+                    } else if (type === 3) { // 敵の初期位置
+                        // 敵メッシュを作成
+                        const enemyGeometry = new THREE.CylinderGeometry(CELL_SIZE * 0.3, CELL_SIZE * 0.3, CELL_SIZE * 0.5, 32);
+                        const enemyMaterial = new THREE.MeshLambertMaterial({ color: 0xff0000 });
+                        const enemyMesh = new THREE.Mesh(enemyGeometry, enemyMaterial);
+                        enemyMesh.position.set(posX, CELL_SIZE * 0.5 / 2, posZ);
+                        scene.add(enemyMesh);
+                        enemies[0].mesh = enemyMesh; // ダミー敵にメッシュを割り当て
+                    } else if (type === 4) { // スタート地点
+                        player.mesh.position.set(posX, 0, posZ); // プレイヤー位置を更新
+                        player.x = posX;
+                        player.z = posZ;
+                    }
+                }
+            }
+            
+            // 壁グループをシーンに追加
+            scene.add(wallMeshGroup);
+            logMessage("ダンジョンジオメトリ生成完了。", 'system');
+        }
+
+        // --- ゲームループ関連 ---
+        
+        /**
+         * @brief 状態に基づいてゲームを更新 (フレームごと)
+         * @param {number} deltaTime - 前フレームからの経過時間 (秒)
+         */
+        function updateGame(deltaTime) {
+            if (gameState !== 'game') return;
+
+            // 1. プレイヤーの移動と衝突判定
+            
+            let moveVector = new THREE.Vector3();
+            let rotDelta = 0;
+
+            // 前後移動
+            if (keys['w'] || keys['W'] || keys['ArrowUp']) {
+                moveVector.z -= MOVEMENT_SPEED * deltaTime * CELL_SIZE;
+            }
+            if (keys['s'] || keys['S'] || keys['ArrowDown']) {
+                moveVector.z += MOVEMENT_SPEED * deltaTime * CELL_SIZE;
+            }
+
+            // 左右旋回 (Three.jsの回転)
+            if (keys['a'] || keys['A'] || keys['ArrowLeft']) {
+                rotDelta += ROTATION_SPEED * deltaTime * 60; // 60は概算のFPS
+            }
+            if (keys['d'] || keys['D'] || keys['ArrowRight']) {
+                rotDelta -= ROTATION_SPEED * deltaTime * 60;
+            }
+            
+            // 移動をプレイヤーの向きに合わせて回転
+            if (moveVector.z !== 0 || rotDelta !== 0) {
+                player.isMoving = true;
                 
-                // マップの復元 (JSON文字列を解析)
-                DUNGEON_MAP = JSON.parse(loadedData.mapData);
-                generateDungeonGeometry(); // マップジオメトリを再生成
+                // 回転を適用
+                player.mesh.rotation.y += rotDelta;
+
+                // 移動ベクトルをプレイヤーの現在の回転に合わせて変換
+                moveVector.applyAxisAngle(new THREE.Vector3(0, 1, 0), player.mesh.rotation.y);
                 
-                // プレイヤー位置・向きの復元
-                camera.position.set(loadedData.position.x, loadedData.position.y, loadedData.position.z);
-                // Three.jsの回転はQuaternion/Eulerで設定する
-                camera.rotation.set(loadedData.rotation.x, loadedData.rotation.y, loadedData.rotation.z, 'YXZ');
+                const newX = player.x + moveVector.x;
+                const newZ = player.z + moveVector.z;
                 
-                // UIの更新とゲーム開始
-                updateStatusDisplay();
-                logMessage(`ゲームを再開しました。(階層: ${currentFloor}, モード: ${currentMode})`, 'info');
-                setGameState('playing');
-                animate(performance.now()); // アニメーション開始
+                // 衝突判定 (X軸)
+                if (!isColliding(newX, player.z)) {
+                    player.x = newX;
+                }
+                
+                // 衝突判定 (Z軸)
+                if (!isColliding(player.x, newZ)) {
+                    player.z = newZ;
+                }
+
+                // プレイヤーメッシュの位置を更新
+                player.mesh.position.set(player.x, 0, player.z);
 
             } else {
-                logMessage('「続きから」を開始できません。新しいゲームを開始してください。', 'error');
+                player.isMoving = false;
             }
-        }
-        
-        // 操作説明モーダル表示
-        function showControlModal() {
-            document.getElementById('title-screen').classList.add('hidden');
-            document.getElementById('control-modal').classList.remove('hidden');
-            document.getElementById('control-modal').style.display = 'flex';
-        }
-        
-        // タイトル画面表示
-        function showTitleScreen() {
-            document.getElementById('title-screen').classList.remove('hidden');
-            document.getElementById('control-modal').classList.add('hidden');
-            document.getElementById('control-modal').style.display = 'none';
-            document.getElementById('gameover-screen').classList.add('hidden');
-            setGameState('title');
-        }
 
-        // モード選択ハンドラ
-        function handleModeSelection(selectedMode) {
-            currentMode = selectedMode;
-            const buttons = document.querySelectorAll('.mode-option');
-            buttons.forEach(button => {
-                if (button.dataset.mode === selectedMode) {
-                    button.style.backgroundColor = '#0d9488'; // teal-600
-                } else {
-                    button.style.backgroundColor = 'rgb(55, 65, 81)'; // gray-700
+            // 2. 敵の更新 (簡易的な追跡)
+            enemies.forEach(enemy => {
+                if (enemy.mesh && !enemy.isDead) {
+                    // 敵の簡易AI：プレイヤーに向かって移動 (Three.jsのベクトルを使用)
+                    const targetPosition = player.mesh.position.clone();
+                    const enemyPosition = enemy.mesh.position.clone();
+                    
+                    const direction = targetPosition.sub(enemyPosition).normalize();
+                    const moveStep = 0.5 * deltaTime; // 敵の移動速度
+                    
+                    // 衝突判定は省略。ここでは単純に移動させる。
+                    enemy.mesh.position.add(direction.multiplyScalar(moveStep));
+
+                    // 敵がプレイヤーに近づきすぎたらダメージ処理 (簡易)
+                    if (enemy.mesh.position.distanceTo(player.mesh.position) < CELL_SIZE * 0.5) {
+                        player.hp -= 1;
+                        logMessage(`敵に接触！HPが${player.hp}になりました。`, 'warning');
+                        if (player.hp <= 0) {
+                            showGameOverScreen("敵に倒されました。");
+                        }
+                    }
                 }
             });
-            let modeName = currentMode === 'plunder' ? '盗掘' : currentMode === 'endless' ? 'エンドレス' : 'ストーリー';
-            logMessage(`ゲームモードを「${modeName}」に設定しました。`, 'info');
+
+            // 3. 定期的なゲームロジック (Tick処理)
+            const currentTime = performance.now();
+            if (currentTime - lastTickTime >= GAME_TICK_RATE) {
+                // ST回復
+                if (player.st < player.maxSt) {
+                    player.st = Math.min(player.maxSt, player.st + 5);
+                }
+                
+                // 追跡者のヘイト減少など (今回は未実装)
+
+                lastTickTime = currentTime;
+            }
+            
+            // 4. UIの更新
+            renderUI();
         }
 
+        /**
+         * @brief アニメーションループ (requestAnimationFrame)
+         */
+        function animate() {
+            animationFrameId = requestAnimationFrame(animate);
+
+            const currentTime = performance.now();
+            const deltaTime = (currentTime - lastFrameTime) / 1000; // 秒単位
+            lastFrameTime = currentTime;
+
+            updateGame(deltaTime);
+
+            renderer.render(scene, camera);
+        }
+        
+        // --- UIレンダリング ---
+        function renderUI() {
+            // ステータス更新
+            document.getElementById('status-hp').textContent = `HP: ${player.hp}/${player.maxHp}`;
+            document.getElementById('status-st').textContent = `ST: ${player.st}/${player.maxSt}`;
+            document.getElementById('status-mov').textContent = `MOV: ${player.mov}`;
+            document.getElementById('status-floor').textContent = `階層: B${currentFloor}F`;
+
+            // ミニマップの描画 (ここでは実装を省略。キャンバスAPIで描画が必要)
+        }
+
+        // --- 画面遷移制御 ---
+        function showTitleScreen() {
+            gameState = 'title';
+            if (animationFrameId) {
+                cancelAnimationFrame(animationFrameId);
+                animationFrameId = null;
+            }
+            document.getElementById('title-screen').classList.remove('hidden');
+            document.getElementById('game-over-screen').classList.add('hidden');
+            document.getElementById('ui-overlay').classList.add('hidden');
+            document.getElementById('joystick-container').style.display = 'none';
+
+            logMessage("タイトル画面を表示しました。", 'system');
+        }
+
+        function showGameScreen() {
+            gameState = 'game';
+            document.getElementById('title-screen').classList.add('hidden');
+            document.getElementById('game-over-screen').classList.add('hidden');
+            document.getElementById('ui-overlay').classList.remove('hidden');
+            
+            // モバイル判定でジョイスティックを表示
+            if ('ontouchstart' in window || navigator.maxTouchPoints) {
+                 document.getElementById('joystick-container').style.display = 'block';
+            }
+            
+            // ゲームループ開始
+            lastFrameTime = performance.now();
+            lastTickTime = performance.now();
+            animate();
+            logMessage("ゲームを開始しました。", 'info');
+        }
+        
+        function showGameOverScreen(reason) {
+            gameState = 'gameover';
+            if (animationFrameId) {
+                cancelAnimationFrame(animationFrameId);
+                animationFrameId = null;
+            }
+            document.getElementById('game-over-reason').textContent = reason;
+            document.getElementById('game-over-screen').classList.remove('hidden');
+            document.getElementById('ui-overlay').classList.add('hidden');
+            document.getElementById('joystick-container').style.display = 'none';
+
+            logMessage("ゲームオーバー。", 'error');
+        }
+
+        function showControlModal() {
+            gameState = 'pause';
+            if (animationFrameId) {
+                cancelAnimationFrame(animationFrameId);
+                animationFrameId = null;
+            }
+            document.getElementById('control-modal').classList.remove('hidden');
+        }
+
+        // --- ゲーム開始/リスタート処理 ---
+        function startGame() {
+            // ゲーム状態のリセット
+            player.hp = player.maxHp;
+            player.st = player.maxSt;
+            currentFloor = 1;
+
+            // マップの再生成とジオメトリの再配置
+            // generateDungeonMap(); // 実際にはランダム生成が必要
+            generateDungeonGeometry(); // ジオメトリを再配置 (現在は固定マップ)
+
+            // 敵の状態をリセット (メッシュのvisible/positionも)
+            enemies.forEach(enemy => {
+                 if (enemy.mesh) {
+                    enemy.hp = enemy.maxHp;
+                    enemy.isDead = false;
+                    enemy.mesh.visible = true;
+                    // TODO: 敵の初期位置をマップデータから取得して正確にリセットするロジックが必要
+                    // 現在は固定位置に設定
+                    const startMapPos = { x: 7, z: 1 };
+                    enemy.mesh.position.set(startMapPos.x * CELL_SIZE, CELL_SIZE * 0.5 / 2, startMapPos.z * CELL_SIZE);
+                 }
+            });
+
+            // UIを更新してゲーム画面へ
+            renderUI();
+            showGameScreen();
+            logMessage(`モード: ${currentMode}でゲームを開始します。`, 'info');
+        }
+        
+        // --- モード選択処理 ---
+        function handleModeSelection(mode) {
+            currentMode = mode;
+            document.querySelectorAll('.mode-option').forEach(button => {
+                if (button.dataset.mode === mode) {
+                    button.classList.remove('bg-gray-700', 'hover:bg-gray-600');
+                    button.classList.add('bg-red-600', 'hover:bg-red-700');
+                } else {
+                    button.classList.remove('bg-red-600', 'hover:bg-red-700');
+                    button.classList.add('bg-gray-700', 'hover:bg-gray-600');
+                }
+            });
+            logMessage(`ゲームモードを「${currentMode === 'plunder' ? '盗掘' : currentMode === 'endless' ? 'エンドレス' : 'ストーリー'}」に設定しました。`, 'info');
+        }
+
+        // --- キーボードイベントハンドラ ---
+        function handleKeyDown(event) {
+            keys[event.key.toLowerCase()] = true;
+            
+            if (gameState === 'game') {
+                switch (event.key.toLowerCase()) {
+                    case 'z': // 攻撃
+                        logMessage("攻撃アクションを実行！ (ST消費)", 'action');
+                        player.st = Math.max(0, player.st - 5);
+                        break;
+                    case 'x': // アイテム1
+                        logMessage("アイテム1を使用。", 'action');
+                        break;
+                    case 'c': // アイテム2
+                        logMessage("アイテム2を使用。", 'action');
+                        break;
+                    case 'escape': // ポーズ/メニュー
+                        showTitleScreen();
+                        break;
+                }
+            } else if (gameState === 'title' && event.key === 'Enter') {
+                 startGame();
+            }
+        }
+
+        function handleKeyUp(event) {
+            keys[event.key.toLowerCase()] = false;
+        }
+
+        // --- タッチ操作 (仮想ジョイスティック) ---
+        let joystickCenter = { x: 0, y: 0 };
+        let joystickActive = false;
+        let rightTouchId = null; // 視点操作用のタッチID
+        
+        function getTouchPos(e) {
+            return { x: e.clientX, y: e.clientY };
+        }
+
+        function handleTouchStart(event) {
+            if (gameState !== 'game') return;
+
+            for (let i = 0; i < event.changedTouches.length; i++) {
+                const touch = event.changedTouches[i];
+                const touchX = touch.clientX;
+                const touchY = touch.clientY;
+                
+                // 左半分を移動（ジョイスティック）として扱う
+                if (touchX < window.innerWidth / 2) {
+                    const container = document.getElementById('joystick-container');
+                    const rect = container.getBoundingClientRect();
+                    joystickCenter = { 
+                        x: rect.left + rect.width / 2, 
+                        y: rect.top + rect.height / 2 
+                    };
+                    joystickActive = true;
+                } 
+                // 右半分を視点操作として扱う
+                else if (rightTouchId === null) {
+                    rightTouchId = touch.identifier;
+                }
+            }
+        }
+
+        function handleTouchMove(event) {
+            if (gameState !== 'game') return;
+            
+            player.isMoving = false;
+            let moveX = 0, moveY = 0; // -1 to 1
+
+            for (let i = 0; i < event.changedTouches.length; i++) {
+                const touch = event.changedTouches[i];
+                const touchPos = getTouchPos(touch);
+                
+                // ジョイスティック操作
+                if (joystickActive && touchPos.x < window.innerWidth / 2) {
+                    const handle = document.getElementById('joystick-handle');
+                    const maxDist = 50; // ジョイスティックコンテナの半径
+                    
+                    const deltaX = touchPos.x - joystickCenter.x;
+                    const deltaY = touchPos.y - joystickCenter.y;
+                    const distance = Math.min(maxDist, Math.sqrt(deltaX * deltaX + deltaY * deltaY));
+                    const angle = Math.atan2(deltaY, deltaX);
+
+                    handle.style.left = `${50 + (distance * Math.cos(angle))}px`;
+                    handle.style.top = `${50 + (distance * Math.sin(angle))}px`;
+                    
+                    // 移動ベクトルに変換
+                    moveX = distance / maxDist * Math.cos(angle);
+                    moveY = distance / maxDist * Math.sin(angle); // Yは上下移動（Three.jsのZ軸）
+                    
+                    // 仮想キープレスに変換 (W, A, S, D)
+                    keys['w'] = moveY < -0.2;
+                    keys['s'] = moveY > 0.2;
+                    // A/Dは旋回ではなく、横移動に使う場合はkeys['a'] = moveX < -0.2; keys['d'] = moveX > 0.2; となります。
+                    // FPS/TPSではW/Sで前後、A/Dで旋回/カニ歩きが多いので、ここではキーボード操作に合わせます。
+                    // タッチ操作では、ジョイスティックの左右は旋回に合わせます。
+                    keys['a'] = moveX < -0.2;
+                    keys['d'] = moveX > 0.2;
+                    player.isMoving = keys['w'] || keys['s'] || keys['a'] || keys['d'];
+                }
+                
+                // 視点操作
+                if (touch.identifier === rightTouchId) {
+                    // 視点移動の処理は、キーボードのA/Dに合わせるのではなく、直接回転させるのが一般的だが、
+                    // ここでは簡易的にマウス移動と同様の処理を模倣する (タッチ操作の座標変化で回転を決定)
+                    if (touch.previousClientX) {
+                        const deltaX = touch.clientX - touch.previousClientX;
+                        player.mesh.rotation.y -= deltaX * 0.005; // 視点旋回
+                    }
+                    touch.previousClientX = touch.clientX;
+                }
+            }
+        }
+
+        function handleTouchEnd(event) {
+            if (gameState !== 'game') return;
+
+            for (let i = 0; i < event.changedTouches.length; i++) {
+                const touch = event.changedTouches[i];
+                
+                // ジョイスティック操作終了
+                if (joystickActive && touch.clientX < window.innerWidth / 2) {
+                    joystickActive = false;
+                    const handle = document.getElementById('joystick-handle');
+                    handle.style.left = '50%';
+                    handle.style.top = '50%';
+                    keys['w'] = keys['s'] = keys['a'] = keys['d'] = false;
+                    player.isMoving = false;
+                }
+                
+                // 視点操作終了
+                if (touch.identifier === rightTouchId) {
+                    rightTouchId = null;
+                }
+            }
+        }
 
         // --- エントリポイント ---
         window.onload = function () {
-            initThree();
-            generateDungeonMap(); // 初回マップ生成
-            generateDungeonGeometry(); // 初回3Dジオメトリ生成
+            // Firebaseモジュールが読み込まれているか確認
+            if (typeof window.initializeApp === 'function') {
+                initFirebase();
+            } else {
+                logMessage("Firebaseモジュールが読み込まれていません。ゲームデータ永続化は動作しません。", 'error');
+            }
             
-            initFirebase().then(checkContinueAvailability); // Firebase初期化と「続きから」のチェック
+            initThree(); // Three.jsの初期化
+            generateDungeonGeometry(); // ダミーマップのジオメトリを生成
             
             // タイトル画面のイベントリスナー
-            document.getElementById('menu-new-game').addEventListener('click', () => startGame(true), false);
-            document.getElementById('menu-continue').addEventListener('click', continueGame, false);
-            document.getElementById('restart-button').addEventListener('click', showTitleScreen, false);
+            document.getElementById('menu-new-game').addEventListener('click', startGame, false);
+            document.getElementById('restart-button').addEventListener('click', showTitleScreen, false); // ゲームオーバーからタイトルへ
             document.getElementById('menu-controls').addEventListener('click', showControlModal, false);
             document.getElementById('close-modal-button').addEventListener('click', showTitleScreen, false);
             
@@ -1324,22 +828,33 @@
             document.querySelectorAll('.mode-option').forEach(button => {
                 button.addEventListener('click', (e) => handleModeSelection(e.target.dataset.mode), false);
             });
-            
-            // ゲーム操作のイベントリスナー
+
+            // アクションボタンのイベントリスナー
+            document.querySelectorAll('.action-button').forEach(button => {
+                button.addEventListener('click', (e) => {
+                    if (gameState === 'game') {
+                        const action = e.target.dataset.action;
+                        // キーボードイベントハンドラと同じロジックを呼び出す
+                        handleKeyDown({ key: action === 'attack' ? 'z' : action === 'item1' ? 'x' : 'c' });
+                        handleKeyUp({ key: action === 'attack' ? 'z' : action === 'item1' ? 'x' : 'c' });
+                    }
+                }, false);
+            });
+
+            // キーボードイベントリスナー
             document.addEventListener('keydown', handleKeyDown, false);
             document.addEventListener('keyup', handleKeyUp, false);
             
-            // キャンバスクリックでポインターロック
-            document.getElementById('main-canvas').addEventListener('click', () => {
-                if (gameState === 'playing' && document.pointerLockElement !== document.getElementById('main-canvas')) {
-                     document.getElementById('main-canvas').requestPointerLock();
-                }
-            }, false);
-
-            showTitleScreen();
+            // タッチイベントリスナー (モバイル対応)
+            document.addEventListener('touchstart', handleTouchStart, false);
+            document.addEventListener('touchmove', handleTouchMove, false);
+            document.addEventListener('touchend', handleTouchEnd, false);
             
-            // 初期モードの表示を強制的に設定
-            handleModeSelection(currentMode);
+            // 初期画面表示とモード設定
+            showTitleScreen();
+            handleModeSelection(currentMode); // 初期モードの表示を強制的に設定
+            
+            logMessage("リアルタイム戦略ローグライク「Deep Diver」起動。", 'info');
         }
     </script>
 </body>
